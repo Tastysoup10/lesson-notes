@@ -27,21 +27,26 @@ The key is kept in this browser only, never in exports or this repository. Free-
 run out, try later or choose **Lighter** in Settings. On the free tier Google may use what is sent to improve its
 products, so only summarise lessons you are allowed to share. If the school network blocks Gemini, summarise at home.
 
-## Dropbox backup
+## Backup (Dropbox or Google Drive)
 
-Lessons are always saved on the Chromebook first (so class works without internet), and the app copies each one to
-your Dropbox, into its own folder (**Apps → <your app name>**): one folder per lesson with `lesson.json`, a PNG
-per page, the recording, and the summary if there is one. Only what changed is uploaded again. A lesson that is going
-on is backed up once it ends. Deleting a lesson in the app keeps its copy in Dropbox.
+Lessons are always saved on the Chromebook first (so class works without internet), and the app can copy each one to
+**Dropbox** or **Google Drive** (**Settings → Backup**): one folder per lesson with `lesson.json`, a PNG per page,
+the recording, and the summary if there is one. Only what changed is uploaded again. A lesson that is going on is
+backed up once it ends. Deleting a lesson in the app keeps its backup copy.
 
-The button next to the gear shows the state: **Backed up**, or **Back up (2)** when lessons are waiting (it backs up
-by itself whenever the app is open and online). You sign in to Dropbox once; the app stays connected.
-**Settings → Restore** brings back any lessons that are in Dropbox but not on this Chromebook (a new or cleared one).
+The button next to the gear shows the state: **Backed up**, or **Back up (2)** when lessons are waiting.
+**Settings → Restore** brings back any lessons that are in the backup but not on this Chromebook (a new or cleared
+one). Each lesson remembers what it has in each place, so switching between Dropbox and Google Drive is safe: the
+first backup to the other one copies everything there.
 
-Dropbox signs in on its own website, so it works on a school Chromebook that does not allow adding accounts. The app
-can only see its own folder, not the rest of your Dropbox. A free Dropbox has 2 GB, about 100 hours of lessons.
+| | Dropbox | Google Drive |
+|---|---|---|
+| Signing in | once, on dropbox.com; stays connected | Google's sign-in window, about once an hour |
+| On a school Chromebook | works (it is a website login) | needs a personal Google account in Chrome; school accounts block it |
+| Free space | 2 GB (about 100 hours of lessons) | 15 GB |
+| What the app can see | only its own folder (Apps → your app) | only the files it made |
 
-### Setting it up (once, about 5 minutes, free)
+### Dropbox: setting it up (once, about 5 minutes, free)
 
 Dropbox needs every app that uses it to be registered, which gives it an **app key**:
 
@@ -55,10 +60,29 @@ Dropbox needs every app that uses it to be registered, which gives it an **app k
    (exactly the address the app is at; Settings in the app shows it) and press **Add**. Leave **Allow public clients**
    on **Allow**.
 6. Copy the **App key** from the Settings tab (not the App secret).
-7. In Lesson Notes: **Settings → Dropbox backup**, paste the app key, press **Connect Dropbox**, sign in to Dropbox
+7. In Lesson Notes: **Settings → Backup → Dropbox**, paste the app key, press **Connect Dropbox**, sign in to Dropbox
    and press **Allow**. You come back to the app and it starts backing up.
 
-If the permissions are changed after connecting, press **Disconnect** and connect again.
+If the permissions are changed after connecting, press **Sign out** and connect again.
+
+### Google Drive: setting it up (once, about 10 minutes, free)
+
+Google needs every app that uses Drive to have its own **client ID**. Make it with a **personal** Google account
+(school accounts usually block this, and a school Chromebook may not let you sign in with another account):
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project called `Lesson Notes`.
+2. **APIs & Services → Library**, search for **Google Drive API**, and press **Enable**.
+3. **Google Auth Platform** (or **APIs & Services → OAuth consent screen**) → **Get started**. App name
+   `Lesson Notes`, your email as support email, Audience **External**, your email as contact, agree, **Create**.
+4. **Audience → Test users → Add users**: add your own Gmail address. Leave the app in **Testing**.
+5. **Clients → Create client**: Application type **Web application**. Under **Authorized JavaScript origins** add
+   `https://tastysoup10.github.io`. Press **Create** and copy the **Client ID** (it ends in
+   `.apps.googleusercontent.com`).
+6. In Lesson Notes: **Settings → Backup → Google Drive**, paste the client ID, press **Sign in to Google Drive**.
+   Google will say it "hasn't verified this app": that is expected for your own app, so press **Continue** and allow
+   access.
+
+If Chrome blocks the sign-in window, allow pop-ups for the site (the icon at the right of the address bar).
 
 **Settings** (the gear button): Theme (System, which follows the Chromebook, Light or Dark) and Paper (Lined, Grid,
 Dots or Blank). The paper stays white in dark mode. Settings are kept in this browser.
@@ -101,7 +125,7 @@ lesson was started.
 
 ## Files
 
-`index.html`, `style.css`, `app.js` (drawing, clock, recording, export, summary screen), `ai.js` (Gemini), `dropbox.js` (Dropbox backup),
+`index.html`, `style.css`, `app.js` (drawing, clock, recording, export, summary screen), `ai.js` (Gemini), `dropbox.js` and `drive.js` (backup),
 `markdown.js` (shows the summary), `db.js` (browser storage), `zip.js` (zip writer), `sw.js` (offline copy), `manifest.webmanifest` and `icon.svg` (installable app). No build step, no
 libraries.
 

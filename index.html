@@ -173,16 +173,24 @@
       <p class="hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> with a personal Google account. It is kept in this browser only. Lighter is quicker and the free limit lasts longer. On the free plan Google may use what you send to improve its AI.</p>
     </section>
     <section>
-      <h3>Dropbox backup</h3>
-      <input id="dropbox-key" class="text-input wide" placeholder="Paste your Dropbox app key" autocomplete="off" spellcheck="false" aria-label="Dropbox app key">
-      <div class="button-row">
-        <button id="backup-connect" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#cloud"/></svg>Connect Dropbox</button>
-        <button id="backup-now" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-upload"/></svg>Back up now</button>
-        <button id="backup-restore" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-download"/></svg>Restore</button>
-        <button id="backup-signout" class="btn btn-ghost">Disconnect</button>
+      <h3>Backup</h3>
+      <div class="choice" id="backupTo-choice">
+        <button data-value="off"><svg class="icon"><use href="assets/icons.svg#cloud-off"/></svg>Off</button>
+        <button data-value="dropbox"><svg class="icon"><use href="assets/icons.svg#cloud"/></svg>Dropbox</button>
+        <button data-value="drive"><svg class="icon"><use href="assets/icons.svg#cloud"/></svg>Google Drive</button>
       </div>
-      <p id="backup-result" class="hint" hidden></p>
-      <p class="hint">Copies every lesson to your Dropbox (in Apps → your app's folder) whenever you're online. Lessons are still saved on this Chromebook first, so nothing is lost without internet. The app can only see its own folder. To set it up once, follow <a href="https://github.com/Tastysoup10/lesson-notes#dropbox-backup" target="_blank" rel="noopener">the steps in the README</a>; the Redirect URI to add is <code id="dropbox-redirect"></code></p>
+      <div id="backup-setup">
+        <input id="backup-key" class="text-input wide" autocomplete="off" spellcheck="false">
+        <div class="button-row">
+          <button id="backup-connect" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#cloud"/></svg><span id="backup-connect-label">Connect</span></button>
+          <button id="backup-now" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-upload"/></svg>Back up now</button>
+          <button id="backup-restore" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-download"/></svg>Restore</button>
+          <button id="backup-signout" class="btn btn-ghost">Sign out</button>
+        </div>
+        <p id="backup-result" class="hint" hidden></p>
+        <p id="backup-hint" class="hint"></p>
+      </div>
+      <p class="hint">Lessons are always saved on this Chromebook first, so nothing is lost without internet; the backup is a copy.</p>
     </section>
   </dialog>
 

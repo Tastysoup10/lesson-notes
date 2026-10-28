@@ -234,16 +234,21 @@ export async function backUpLesson(state, folderName, files, onFile) {
   return result;
 }
 
-// The lesson folders in Dropbox: [{ name }]
+// The lesson folders in Dropbox: [{ ref (the folder), name }]
 export async function listBackups() {
-  return (await list("")).filter((e) => e[".tag"] === "folder").map((e) => ({ name: e.name }));
+  return (await list("")).filter((e) => e[".tag"] === "folder").map((e) => ({ ref: e.name, name: e.name }));
 }
 
-// The file names in one lesson's folder
+// The files in one lesson's folder: [{ name, ref (what download takes) }]
 export async function folderFiles(folderName) {
-  return (await list("/" + folderName)).filter((e) => e[".tag"] === "file").map((e) => e.name);
+  return (await list("/" + folderName)).filter((e) => e[".tag"] === "file").map((e) => ({ name: e.name, ref: `/${folderName}/${e.name}` }));
 }
 
-export async function download(folderName, name) {
-  return (await call(CONTENT, "/files/download", { arg: { path: `/${folderName}/${name}` } })).blob();
+export async function download(path) {
+  return (await call(CONTENT, "/files/download", { arg: { path } })).blob();
+}
+
+// The backup state of a restored lesson: these files are already there. sigOf(name) is the signature of each.
+export function restoredState(backup, files, sigOf) {
+  return { name: backup.name, files: Object.fromEntries(files.map((f) => [f.name, sigOf(f.name)])) };
 }

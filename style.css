@@ -362,7 +362,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.text-input.wide { width: 100%; }
+.text-input.wide { width: 100%; margin-top: 10px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 #backup-status.pending { color: var(--warn-text); background: var(--warn-bg); }
 #backup-status.done { color: var(--good-text); }
