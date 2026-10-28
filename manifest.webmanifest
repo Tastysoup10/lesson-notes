@@ -1,0 +1,13 @@
+{
+  "name": "Lesson Notes",
+  "short_name": "Notes",
+  "description": "Handwritten lesson notes with recording, timestamped for an AI summary later.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e5e7eb",
+  "theme_color": "#1f2937",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
