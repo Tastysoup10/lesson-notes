@@ -5,66 +5,84 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lesson Notes</title>
   <meta name="description" content="Handwritten lesson notes with recording, timestamped for an AI summary later.">
-  <meta name="theme-color" content="#1f2937">
+  <meta name="theme-color" content="#ffffff">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- All lessons -->
   <section id="home" class="screen">
-    <header class="bar">
-      <h1>Lesson Notes</h1>
-      <button id="new-lesson" class="primary">+ New lesson</button>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark"><svg class="icon"><use href="assets/icons.svg#notebook-pen"/></svg></span>
+        <h1>Lesson Notes</h1>
+      </div>
+      <button id="new-lesson" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#plus"/></svg>New lesson</button>
     </header>
     <main class="home-main">
-      <p id="storage-note" class="note"></p>
       <ul id="lesson-list"></ul>
-      <p id="empty" class="note" hidden>No lessons yet. Press <b>+ New lesson</b> to start one.</p>
+      <div id="empty" class="empty" hidden>
+        <svg class="icon empty-icon"><use href="assets/icons.svg#notebook-pen"/></svg>
+        <h2>No lessons yet</h2>
+        <p>Press <b>New lesson</b>, then <b>Start lesson</b> when class begins.<br>Your notes save in this browser and work offline.</p>
+      </div>
+      <p id="storage-note" class="storage-note"></p>
     </main>
   </section>
 
   <!-- One lesson: notes and recording -->
   <section id="lesson" class="screen" hidden>
-    <header class="bar toolbar">
-      <button id="back" title="All lessons">← Lessons</button>
-      <input id="title" aria-label="Lesson title" maxlength="80">
-      <div class="group">
-        <button id="rec-start" class="primary">● Start lesson</button>
-        <button id="rec-pause" hidden>Pause</button>
-        <button id="rec-end" hidden>End lesson</button>
-        <span id="clock" title="Lesson time (the recording's time)">0:00</span>
-        <span id="rec-status"></span>
+    <header class="toolbar">
+      <button id="back" class="btn btn-ghost icon-only" title="All lessons"><svg class="icon"><use href="assets/icons.svg#arrow-left"/></svg></button>
+      <input id="title" class="title-input" aria-label="Lesson title" maxlength="80">
+
+      <div class="rec">
+        <button id="rec-start" class="btn btn-record"><span class="rec-dot"></span><span id="rec-start-label">Start lesson</span></button>
+        <div id="rec-live" class="rec-live" hidden>
+          <span id="rec-status" class="rec-status"><span class="rec-dot"></span><span id="rec-status-text">REC</span></span>
+          <span id="clock" title="Lesson time (the recording's time)">0:00</span>
+          <button id="rec-pause" class="btn btn-ghost icon-only" title="Pause"><svg class="icon"><use id="rec-pause-icon" href="assets/icons.svg#pause"/></svg></button>
+          <button id="rec-end" class="btn btn-ghost icon-only" title="End lesson"><svg class="icon"><use href="assets/icons.svg#square"/></svg></button>
+        </div>
       </div>
-      <div class="group" id="tools">
-        <button data-tool="pen" class="active" title="Pen (P)">Pen</button>
-        <button data-tool="highlighter" title="Highlighter (H)">Highlight</button>
-        <button data-tool="eraser" title="Eraser: removes whole strokes (E)">Eraser</button>
+
+      <div class="spacer"></div>
+
+      <div class="segment" id="tools">
+        <button data-tool="pen" class="active" title="Pen (P)"><svg class="icon"><use href="assets/icons.svg#pen-line"/></svg></button>
+        <button data-tool="highlighter" title="Highlighter (H)"><svg class="icon"><use href="assets/icons.svg#highlighter"/></svg></button>
+        <button data-tool="eraser" title="Eraser: removes whole strokes (E)"><svg class="icon"><use href="assets/icons.svg#eraser"/></svg></button>
       </div>
-      <div class="group" id="colors">
+      <div class="segment" id="colors">
         <button data-color="black" class="swatch active" title="Black" style="--c:#111827"></button>
         <button data-color="blue" class="swatch" title="Blue" style="--c:#1d4ed8"></button>
         <button data-color="red" class="swatch" title="Red" style="--c:#dc2626"></button>
         <button data-color="green" class="swatch" title="Green" style="--c:#15803d"></button>
       </div>
-      <div class="group" id="sizes">
-        <button data-size="2" title="Thin">S</button>
-        <button data-size="4" class="active" title="Medium">M</button>
-        <button data-size="8" title="Thick">L</button>
+      <div class="segment" id="sizes">
+        <button data-size="2" title="Thin"><span class="dot" style="--d:4px"></span></button>
+        <button data-size="4" class="active" title="Medium"><span class="dot" style="--d:7px"></span></button>
+        <button data-size="8" title="Thick"><span class="dot" style="--d:11px"></span></button>
       </div>
-      <div class="group">
-        <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
-        <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+      <div class="segment">
+        <button id="undo" title="Undo (Ctrl+Z)"><svg class="icon"><use href="assets/icons.svg#undo-2"/></svg></button>
+        <button id="redo" title="Redo (Ctrl+Y)"><svg class="icon"><use href="assets/icons.svg#redo-2"/></svg></button>
       </div>
-      <button id="export" title="Save this lesson as a .zip file for the AI summary">Export</button>
+      <button id="export" class="btn btn-secondary" title="Save this lesson as a .zip file for the AI summary"><svg class="icon"><use href="assets/icons.svg#download"/></svg>Export</button>
     </header>
-    <main id="stage"><canvas id="canvas"></canvas></main>
-    <footer class="bar pagebar">
-      <button id="prev-page" title="Previous page (←)">◀</button>
-      <span id="page-label">Page 1 / 1</span>
-      <button id="next-page" title="Next page (→)">▶</button>
-      <button id="add-page">+ New page</button>
-    </footer>
+
+    <main id="stage">
+      <canvas id="canvas"></canvas>
+      <nav class="pager" aria-label="Pages">
+        <button id="prev-page" title="Previous page (←)"><svg class="icon"><use href="assets/icons.svg#chevron-left"/></svg></button>
+        <span id="page-label">Page 1 / 1</span>
+        <button id="next-page" title="Next page (→)"><svg class="icon"><use href="assets/icons.svg#chevron-right"/></svg></button>
+        <span class="pager-sep"></span>
+        <button id="add-page" title="New page"><svg class="icon"><use href="assets/icons.svg#file-plus"/></svg></button>
+      </nav>
+    </main>
   </section>
 
   <div id="toast" role="status" hidden></div>

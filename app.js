@@ -101,33 +101,61 @@ async function showHome() {
   $("empty").hidden = lessons.length > 0;
   for (const l of lessons) {
     const li = document.createElement("li");
-    const info = document.createElement("div");
-    info.className = "info";
-    const name = document.createElement("div");
-    name.className = "name";
-    name.textContent = l.title;
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const strokes = l.pages.reduce((n, p) => n + p.strokes.length, 0);
-    meta.textContent = [
-      new Date(l.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
-      formatTime(l.clockMs),
-      l.pages.length + (l.pages.length == 1 ? " page" : " pages"),
-      strokes + " strokes",
-      l.takes.length > 0 ? "recorded" : "no recording",
-      l.exported ? "exported" : "not exported yet"
-    ].join(" · ");
-    info.append(name, meta);
-    li.append(info, button("Open", () => openLesson(l.id)), button("Export", () => exportLesson(l)), button("Delete", () => removeLesson(l), "danger"));
+    li.className = "lesson-card";
+    const thumb = el("div", "thumb");
+    thumb.append(icon("notebook-pen"));
+    const info = el("div", "info");
+    info.title = "Open";
+    info.addEventListener("click", () => openLesson(l.id));
+    const meta = el("div", "meta");
+    meta.append(
+      metaItem("clock-3", new Date(l.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })),
+      metaItem("play", formatTime(l.clockMs)),
+      metaItem("file-plus", l.pages.length + (l.pages.length == 1 ? " page" : " pages")),
+      metaItem(l.takes.length > 0 ? "mic" : "mic-off", l.takes.length > 0 ? "Recorded" : "No recording"),
+      el("span", "chip " + (l.exported ? "good" : "warn"), l.exported ? "Exported" : "Not exported")
+    );
+    info.append(el("div", "name", l.title), meta);
+    const actions = el("div", "actions");
+    actions.append(
+      button("Open", "folder-open", () => openLesson(l.id), "btn btn-ghost"),
+      button("Export", "download", () => exportLesson(l), "btn btn-ghost"),
+      button("", "trash-2", () => removeLesson(l), "btn btn-ghost btn-danger icon-only", "Delete")
+    );
+    li.append(thumb, info, actions);
     list.append(li);
   }
   showStorageNote();
 }
 
-function button(text, onClick, className = "") {
-  const b = document.createElement("button");
-  b.textContent = text;
-  b.className = className;
+function el(tag, className = "", text = null) {
+  const e = document.createElement(tag);
+  e.className = className;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// A Lucide icon from assets/icons.svg
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "icon");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "assets/icons.svg#" + name);
+  svg.append(use);
+  return svg;
+}
+
+function metaItem(iconName, text) {
+  const span = el("span");
+  span.append(icon(iconName), text);
+  return span;
+}
+
+function button(text, iconName, onClick, className, title = text) {
+  const b = el("button", className);
+  b.title = title;
+  b.append(icon(iconName));
+  if (text) b.append(text);
   b.addEventListener("click", onClick);
   return b;
 }
@@ -189,8 +217,10 @@ async function leaveLesson() {
 
 function fit() {
   const stage = $("stage");
-  const pad = 12;
-  viewScale = Math.min((stage.clientWidth - pad) / PAGE_W, (stage.clientHeight - pad) / PAGE_H);
+  // leave a margin round the page, and room below it for the page switcher (the stage's bottom padding)
+  const margin = 24;
+  const below = parseFloat(getComputedStyle(stage).paddingBottom) || 0;
+  viewScale = Math.min((stage.clientWidth - margin) / PAGE_W, (stage.clientHeight - below - margin) / PAGE_H);
   if (!(viewScale > 0)) return;
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = PAGE_W * viewScale + "px";
@@ -501,23 +531,16 @@ async function keepScreenOn() {
 function updateRecordingUi() {
   const running = clock.running;
   const active = lessonActive();
-  const start = $("rec-start");
-  start.hidden = active;
-  start.textContent = lesson.started ? "● Continue lesson" : "● Start lesson";
-  $("rec-pause").hidden = !active;
-  $("rec-pause").textContent = running ? "Pause" : "Resume";
-  $("rec-end").hidden = !active;
-  $("rec-pause").classList.toggle("recording", running);
+  $("rec-start").hidden = active;
+  $("rec-start-label").textContent = lesson.started ? "Continue lesson" : "Start lesson";
+  $("rec-start").title = lesson.mic === "blocked" ? "The microphone was blocked last time" : "Start the lesson clock and recording";
+  $("rec-live").hidden = !active;
+  $("rec-pause").title = running ? "Pause" : "Resume";
+  $("rec-pause-icon").setAttribute("href", "assets/icons.svg#" + (running ? "pause" : "play"));
   const status = $("rec-status");
-  status.className = "";
-  if (active && recorder != null) {
-    status.textContent = running ? "Recording" : "Paused";
-    status.className = "ok";
-  } else if (active) {
-    status.textContent = running ? "Not recording (no microphone)" : "Paused";
-  } else {
-    status.textContent = lesson.mic === "blocked" ? "Microphone was blocked" : "";
-  }
+  status.className = "rec-status" + (running ? " on" : "") + (recorder == null ? " nomic" : "");
+  status.title = recorder == null ? "Not recording: no microphone. The lesson clock still runs." : "";
+  $("rec-status-text").textContent = !running ? "PAUSED" : recorder != null ? "REC" : "NO MIC";
   $("export").disabled = active;
   updateClock();
   clearInterval(clockTimer);

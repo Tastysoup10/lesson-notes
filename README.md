@@ -48,3 +48,7 @@ lesson was started.
 
 `index.html`, `style.css`, `app.js` (drawing, clock, recording, export), `db.js` (browser storage), `zip.js` (zip
 writer), `sw.js` (offline copy), `manifest.webmanifest` and `icon.svg` (installable app). No build step, no libraries.
+
+`assets/` holds the open-source assets, stored with the app so it works offline: icons from
+[Lucide](https://lucide.dev) (ISC License) in `assets/icons.svg`, and the [Inter](https://rsms.me/inter) font (SIL Open
+Font License) in `assets/inter.woff2`. Their licences are in `assets/LICENSES.md`.
