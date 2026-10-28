@@ -364,9 +364,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 }
 .text-input.wide { width: 100%; }
 .button-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-#drive-status.pending { color: var(--warn-text); background: var(--warn-bg); }
-#drive-status.done { color: var(--good-text); }
-#drive-status.error { color: var(--danger); }
+#backup-status.pending { color: var(--warn-text); background: var(--warn-bg); }
+#backup-status.done { color: var(--good-text); }
+#backup-status.error { color: var(--danger); }
+.hint code { font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
 .hint.good { color: var(--good-text); }
 .hint.bad { color: var(--danger); }
 

@@ -7,7 +7,7 @@ import * as db from "./db.js";
 import { makeZip } from "./zip.js";
 import { summarise, testKey, AiError } from "./ai.js";
 import { markdownToHtml } from "./markdown.js";
-import * as drive from "./drive.js";
+import * as cloud from "./dropbox.js";
 
 const FORMAT = "lesson-notes/1";
 // Pages are drawn in these units whatever the screen size (16:10, like most Chromebook screens)
@@ -47,8 +47,8 @@ const SETTING_CHOICES = {
 const settings = { theme: "system", paper: "lined", model: "gemini-3.8-flash" };
 // the Gemini API key: on its own, so it never ends up anywhere the other settings go
 const AI_KEY = "lesson-notes-gemini-key";
-// the Google client ID for Drive backup (made by the student once, see the README)
-const DRIVE_CLIENT_KEY = "lesson-notes-drive-client";
+// the app key for Dropbox backup (the student makes a Dropbox app once, see the README)
+const DROPBOX_KEY = "lesson-notes-dropbox-app";
 try {
   const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
   for (const key of Object.keys(SETTING_CHOICES)) {
@@ -89,14 +89,16 @@ function stored(key) {
   }
 }
 const aiKey = () => stored(AI_KEY);
-const driveClientId = () => stored(DRIVE_CLIENT_KEY);
+const dropboxAppKey = () => stored(DROPBOX_KEY);
 
 function openSettings() {
   showSettingChoices();
   $("ai-key").value = aiKey();
   $("ai-key-result").hidden = true;
-  $("drive-client").value = driveClientId();
-  $("drive-result").hidden = true;
+  $("dropbox-key").value = dropboxAppKey();
+  $("dropbox-redirect").textContent = cloud.redirectUri();
+  $("backup-result").hidden = true;
+  showConnection();
   $("settings").showModal();
 }
 
@@ -233,7 +235,7 @@ function button(text, iconName, onClick, className, title = text) {
 }
 
 async function removeLesson(l) {
-  if (!confirm(`Delete "${l.title}" and its recording? This cannot be undone.` + (l.drive ? "\n\nThe copy in Google Drive is kept." : l.exported ? "" : "\n\nIt has not been exported."))) return;
+  if (!confirm(`Delete "${l.title}" and its recording? This cannot be undone.` + (l.backup ? "\n\nThe copy in Dropbox is kept." : l.exported ? "" : "\n\nIt has not been exported."))) return;
   await db.deleteLesson(l.id);
   showHome();
 }
@@ -703,7 +705,7 @@ async function exportLesson(target) {
   if (!$("home").hidden) showHome();
 }
 
-// "<date> <title>", for the export's file name and the Drive folder
+// "<date> <title>", for the export's file name and the Dropbox folder
 function lessonFileName(l) {
   return `${l.created.slice(0, 10)} ${l.title.replace(/[\\/:*?"<>|]+/g, "-")}`;
 }
@@ -727,20 +729,21 @@ async function pageImages(l) {
   return images;
 }
 
-// --- Google Drive backup (drive.js) ----------------------------------------------------------------------------------
+// --- Dropbox backup (dropbox.js) -------------------------------------------------------------------------------------
 
 let backingUp = false;
 let backUpAgain = false;
-const backup = { pending: null, progress: "", error: null }; // pending: lessons not yet in Drive (null: not counted yet)
+const backup = { pending: null, progress: "", error: null }; // pending: lessons not yet in Dropbox (null: not counted yet)
 
 // What a lesson's backup holds: [{ name, sig (changes when the contents do), blob() }]
 async function backupFiles(l) {
-  const { drive: _, ...data } = l;
+  // without the backup state (and the old Google Drive one), which changes when it is backed up
+  const { backup: _, drive: _drive, ...data } = l;
   const json = JSON.stringify(data);
-  const files = [{ name: "lesson.json", sig: drive.signature(json), blob: () => new Blob([json], { type: "application/json" }) }];
+  const files = [{ name: "lesson.json", sig: cloud.signature(json), blob: () => new Blob([json], { type: "application/json" }) }];
   l.pages.forEach((page, i) => files.push({
     name: `page-${i + 1}.png`,
-    sig: drive.signature(settings.paper + JSON.stringify(page.strokes)),
+    sig: cloud.signature(settings.paper + JSON.stringify(page.strokes)),
     blob: () => pageImage(page)
   }));
   for (const take of l.takes) {
@@ -750,17 +753,25 @@ async function backupFiles(l) {
     }
   }
   if (l.ai) {
-    files.push({ name: "summary.md", sig: drive.signature(l.ai.summary), blob: () => new Blob([l.ai.summary], { type: "text/markdown" }) });
-    if (l.ai.transcript) files.push({ name: "transcript.txt", sig: drive.signature(l.ai.transcript), blob: () => new Blob([l.ai.transcript], { type: "text/plain" }) });
+    files.push({ name: "summary.md", sig: cloud.signature(l.ai.summary), blob: () => new Blob([l.ai.summary], { type: "text/markdown" }) });
+    if (l.ai.transcript) files.push({ name: "transcript.txt", sig: cloud.signature(l.ai.transcript), blob: () => new Blob([l.ai.transcript], { type: "text/plain" }) });
   }
   return files;
 }
 
-// Backs up every lesson that changed since its last backup. signIn: called from a button press, so Google's sign-in
-// window may open. Without a sign-in it only counts what is waiting. Resolves with the error, if there was one.
-async function backUp(signIn = false) {
-  const clientId = driveClientId();
-  if (!clientId) return showBackupStatus();
+// Signing in leaves the page for dropbox.com, so not in the middle of a lesson
+async function connectDropbox() {
+  if (lesson != null && lessonActive()) throw new cloud.BackupError("End the lesson first, then connect Dropbox.");
+  if (lesson != null) await saveNow();
+  await cloud.signIn(dropboxAppKey());
+  return "Going to Dropbox…";
+}
+
+// Backs up every lesson that changed since its last backup (only counts them when not connected to Dropbox).
+// Resolves with the error, if there was one.
+async function backUp() {
+  const appKey = dropboxAppKey();
+  if (!appKey) return showBackupStatus();
   if (backingUp) {
     backUpAgain = true;
     return null;
@@ -768,31 +779,30 @@ async function backUp(signIn = false) {
   backingUp = true;
   backup.error = null;
   try {
-    if (signIn && !drive.connected()) await drive.signIn(clientId);
     do {
       backUpAgain = false;
       const todo = [];
       for (const l of await db.getLessons()) {
         if (lesson?.id === l.id && lessonActive()) continue; // still going on: backed up once it ends
         const files = await backupFiles(l);
-        if (drive.needsBackup(l.drive, lessonFileName(l), files)) todo.push({ l, files });
+        if (cloud.needsBackup(l.backup, lessonFileName(l), files)) todo.push({ l, files });
       }
       backup.pending = todo.length;
       showBackupStatus();
-      if (todo.length == 0 || !drive.connected()) break;
+      if (todo.length == 0 || !cloud.connected(appKey)) break;
       for (let i = 0; i < todo.length; i++) {
         const { l, files } = todo[i];
         const label = todo.length > 1 ? `Backing up ${i + 1} of ${todo.length}` : "Backing up";
         backup.progress = label + "…";
         showBackupStatus();
-        const state = await drive.backUpLesson(l.id, l.drive, lessonFileName(l), files, (k, n) => {
+        const state = await cloud.backUpLesson(l.backup, lessonFileName(l), files, (k, n) => {
           backup.progress = `${label}… ${Math.round((k / n) * 100)}%`;
           showBackupStatus();
         });
         // stored on the copy being edited if the lesson is open, otherwise on the latest saved copy
         const target = lesson?.id === l.id ? lesson : await db.getLesson(l.id);
         if (target == null) continue; // deleted meanwhile
-        target.drive = state;
+        target.backup = state;
         await db.putLesson(target);
         backup.pending--;
       }
@@ -808,51 +818,51 @@ async function backUp(signIn = false) {
 
 // The button next to Settings on the home screen
 function showBackupStatus() {
-  const b = $("drive-status");
-  b.hidden = !driveClientId() || backup.pending == null;
+  const b = $("backup-status");
+  b.hidden = !dropboxAppKey() || backup.pending == null;
   if (b.hidden) return;
   const n = backup.pending;
   const lessons = n == 1 ? "1 lesson" : n + " lessons";
   let state;
-  if (backingUp && backup.progress) state = ["cloud-upload", backup.progress, "", "Copying lessons to Google Drive"];
-  else if (n > 0 && backup.error && backup.error.code !== "signed-out") state = ["cloud-off", `Not backed up (${n})`, "error", backup.error.message + " Press to try again."];
-  else if (n > 0) state = ["cloud-upload", `Back up (${n})`, "pending", `${lessons} not in Google Drive yet. Press to back up.`];
-  else state = ["cloud-check", "Backed up", "done", "Every lesson is in Google Drive"];
+  if (backingUp && backup.progress) state = ["cloud-upload", backup.progress, "", "Copying lessons to Dropbox"];
+  else if (n > 0 && !cloud.connected(dropboxAppKey())) state = ["cloud-upload", `Connect Dropbox (${n})`, "pending", `${lessons} not in Dropbox yet. Press to sign in to Dropbox.`];
+  else if (n > 0 && backup.error) state = ["cloud-off", `Not backed up (${n})`, "error", backup.error.message + " Press to try again."];
+  else if (n > 0) state = ["cloud-upload", `Back up (${n})`, "pending", `${lessons} not in Dropbox yet. Press to back up.`];
+  else state = ["cloud-check", "Backed up", "done", "Every lesson is in Dropbox"];
   const [iconName, text, className, title] = state;
-  $("drive-status-icon").setAttribute("href", "assets/icons.svg#" + iconName);
-  $("drive-status-text").textContent = text;
+  $("backup-status-icon").setAttribute("href", "assets/icons.svg#" + iconName);
+  $("backup-status-text").textContent = text;
   b.className = "btn btn-ghost " + className;
   b.title = title;
   b.disabled = backingUp;
 }
 
-// Brings back the lessons that are in Drive but not on this Chromebook. Resolves with what to tell the student.
-async function restoreFromDrive(report) {
-  if (!drive.connected()) await drive.signIn(driveClientId());
-  report("Looking in Google Drive…");
+// Brings back the lessons that are in Dropbox but not on this Chromebook. Resolves with what to tell the student.
+async function restoreFromDropbox(report) {
+  if (!cloud.connected(dropboxAppKey())) return connectDropbox();
+  report("Looking in Dropbox…");
   const here = new Set((await db.getLessons()).map((l) => l.id));
-  const missing = (await drive.listBackups()).filter((b) => !here.has(b.lessonId));
-  if (missing.length == 0) return "Every lesson in Google Drive is already on this Chromebook.";
-  if (!confirm(`Restore ${missing.length == 1 ? "1 lesson" : missing.length + " lessons"} from Google Drive onto this Chromebook?`)) return "";
-  let restored = 0;
-  for (let i = 0; i < missing.length; i++) {
-    report(`Restoring ${i + 1} of ${missing.length}…`);
-    const files = await drive.folderFiles(missing[i].folder);
-    const json = files.find((f) => f.name === "lesson.json");
-    if (json == null) continue;
-    const l = JSON.parse(await (await drive.download(json.id)).text());
-    if (l.format !== FORMAT || !l.id) continue;
+  const found = [];
+  for (const { name } of await cloud.listBackups()) {
+    const files = await cloud.folderFiles(name);
+    if (!files.includes("lesson.json")) continue;
+    const l = JSON.parse(await (await cloud.download(name, "lesson.json")).text());
+    if (l.format === FORMAT && l.id && !here.has(l.id)) found.push({ l, name, files });
+  }
+  if (found.length == 0) return "Every lesson in Dropbox is already on this Chromebook.";
+  if (!confirm(`Restore ${found.length == 1 ? "1 lesson" : found.length + " lessons"} from Dropbox onto this Chromebook?`)) return "";
+  for (let i = 0; i < found.length; i++) {
+    const { l, name, files } = found[i];
+    report(`Restoring ${i + 1} of ${found.length}…`);
     for (const take of l.takes) {
-      const audio = files.find((f) => f.name === audioFile(take));
-      if (audio) await db.putAudioChunk(l.id, take.take, 0, await drive.download(audio.id));
+      if (files.includes(audioFile(take))) await db.putAudioChunk(l.id, take.take, 0, await cloud.download(name, audioFile(take)));
     }
-    // it came from Drive, so it is already backed up
-    l.drive = { folder: missing[i].folder, name: missing[i].name, files: Object.fromEntries(files.map((f) => [f.name, { id: f.id, sig: f.sig }])) };
+    // it came from Dropbox, so what is there is already backed up
+    l.backup = { name, files: Object.fromEntries((await backupFiles(l)).filter((f) => files.includes(f.name)).map((f) => [f.name, f.sig])) };
     await db.putLesson(l);
-    restored++;
   }
   if (!$("home").hidden) showHome();
-  return `Restored ${restored == 1 ? "1 lesson" : restored + " lessons"}.`;
+  return `Restored ${found.length == 1 ? "1 lesson" : found.length + " lessons"}.`;
 }
 
 // --- AI summary ------------------------------------------------------------------------------------------------------
@@ -1017,49 +1027,58 @@ $("ai-key-test").addEventListener("click", async () => {
     result.textContent = e.message;
   }
 });
-$("drive-client").addEventListener("input", (e) => {
+$("dropbox-key").addEventListener("input", (e) => {
   try {
-    localStorage.setItem(DRIVE_CLIENT_KEY, e.target.value.trim());
+    localStorage.setItem(DROPBOX_KEY, e.target.value.trim());
   } catch {}
-  drive.signOut(); // a different client ID needs a new sign-in
-  if (driveClientId()) drive.preload().catch(() => {});
   backup.pending = null;
   showBackupStatus();
+  showConnection();
 });
-// the buttons in Settings → Google Drive backup report in the line under them
-async function driveAction(work) {
-  const result = $("drive-result");
+function showConnection() {
+  const on = cloud.connected(dropboxAppKey());
+  $("backup-connect").hidden = on;
+  $("backup-now").hidden = $("backup-signout").hidden = !on;
+}
+// the buttons in Settings → Dropbox backup report in the line under them
+async function backupAction(work) {
+  const result = $("backup-result");
   const report = (text, className = "hint") => {
     result.hidden = !text;
     result.className = className;
     result.textContent = text;
   };
-  if (!driveClientId()) return report("Paste your Google client ID first (see the README for how to make one).", "hint bad");
-  for (const b of document.querySelectorAll("#drive-backup, #drive-restore")) b.disabled = true;
+  if (!dropboxAppKey()) return report("Paste your Dropbox app key first (see the README for how to make one).", "hint bad");
+  const buttons = document.querySelectorAll("#backup-connect, #backup-now, #backup-restore");
+  for (const b of buttons) b.disabled = true;
   try {
     report(await work(report), "hint good");
   } catch (e) {
     report(e.message, "hint bad");
   }
-  for (const b of document.querySelectorAll("#drive-backup, #drive-restore")) b.disabled = false;
+  for (const b of buttons) b.disabled = false;
 }
-$("drive-backup").addEventListener("click", () => driveAction(async (report) => {
+$("backup-connect").addEventListener("click", () => backupAction(connectDropbox));
+$("backup-now").addEventListener("click", () => backupAction(async (report) => {
   report("Backing up…");
-  const error = await backUp(true);
+  const error = await backUp();
   if (error) throw error;
-  return "Every lesson is backed up to Google Drive.";
+  return "Every lesson is backed up to Dropbox.";
 }));
-$("drive-restore").addEventListener("click", () => driveAction(restoreFromDrive));
-$("drive-signout").addEventListener("click", () => {
-  drive.signOut();
-  $("drive-result").hidden = false;
-  $("drive-result").className = "hint";
-  $("drive-result").textContent = "Signed out of Google Drive on this Chromebook.";
+$("backup-restore").addEventListener("click", () => backupAction(restoreFromDropbox));
+$("backup-signout").addEventListener("click", () => {
+  cloud.signOut();
+  showConnection();
+  $("backup-result").hidden = false;
+  $("backup-result").className = "hint";
+  $("backup-result").textContent = "Disconnected Dropbox on this Chromebook. Your lessons stay in Dropbox.";
   backUp();
 });
-$("drive-status").addEventListener("click", () => backUp(true));
+$("backup-status").addEventListener("click", () => {
+  if (cloud.connected(dropboxAppKey())) backUp();
+  else connectDropbox().catch((e) => toast(e.message));
+});
 window.addEventListener("online", () => backUp());
-if (driveClientId() && navigator.onLine) drive.preload().catch(() => {});
 $("summarise").addEventListener("click", () => showSummary(lesson));
 $("summary-back").addEventListener("click", leaveSummary);
 $("summary-go").addEventListener("click", runSummary);
@@ -1162,4 +1181,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-showHome();
+// back from signing in at dropbox.com?
+cloud.finishSignIn()
+  .then((done) => done && toast("Dropbox is connected. Your lessons will be backed up to it."), (e) => toast(e.message))
+  .finally(showHome);
