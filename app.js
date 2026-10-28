@@ -133,12 +133,18 @@ const clock = {
 
 // --- Lessons ---------------------------------------------------------------------------------------------------------
 
+// The title a new lesson gets ("Lesson Wed, 28 Oct"); while a lesson still has it (or one the AI gave it), a summary
+// renames it to what the lesson was about
+function defaultTitle(created) {
+  return "Lesson " + new Date(created).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
 function newLessonData() {
   const now = new Date();
   return {
     format: FORMAT,
     id: crypto.randomUUID(),
-    title: "Lesson " + now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }),
+    title: defaultTitle(now),
     created: now.toISOString(),
     clockMs: 0, // lesson time so far
     started: false,
@@ -172,6 +178,8 @@ async function saveNow() {
 
 // --- Home screen -----------------------------------------------------------------------------------------------------
 
+let selecting = null; // Select mode: the ids of the ticked lessons, or null when not selecting
+
 async function showHome() {
   closePlayer();
   lesson = null;
@@ -182,14 +190,34 @@ async function showHome() {
   const list = $("lesson-list");
   list.replaceChildren();
   $("empty").hidden = lessons.length > 0;
+  if (lessons.length == 0) selecting = null;
+  $("select-lessons").hidden = lessons.length == 0 || selecting != null;
+  $("select-bar").hidden = selecting == null;
   for (const l of lessons) {
     const li = document.createElement("li");
     li.className = "lesson-card";
     const thumb = el("div", "thumb");
     thumb.append(icon("notebook-pen"));
+    if (selecting != null) {
+      // the whole card ticks and unticks it
+      const box = el("input", "select-box");
+      box.type = "checkbox";
+      box.tabIndex = -1;
+      box.checked = selecting.has(l.id);
+      thumb.replaceChildren(box);
+      li.classList.add("selectable");
+      li.classList.toggle("selected", box.checked);
+      li.addEventListener("click", () => {
+        if (selecting.has(l.id)) selecting.delete(l.id);
+        else selecting.add(l.id);
+        box.checked = selecting.has(l.id);
+        li.classList.toggle("selected", box.checked);
+        showSelectBar(lessons);
+      });
+    }
     const info = el("div", "info");
-    info.title = "Open";
-    info.addEventListener("click", () => openLesson(l.id));
+    info.title = selecting ? "" : "Open";
+    info.addEventListener("click", () => selecting == null && openLesson(l.id));
     const meta = el("div", "meta");
     meta.append(
       metaItem("clock-3", new Date(l.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })),
@@ -210,6 +238,7 @@ async function showHome() {
     li.append(thumb, info, actions);
     list.append(li);
   }
+  if (selecting != null) showSelectBar(lessons);
   showStorageNote();
   backUp();
 }
@@ -244,6 +273,32 @@ function button(text, iconName, onClick, className, title = text) {
   if (text) b.append(text);
   b.addEventListener("click", onClick);
   return b;
+}
+
+function showSelectBar(lessons) {
+  const n = selecting.size;
+  $("select-count").textContent = n == 0 ? "Tap lessons to choose them" : n == 1 ? "1 lesson chosen" : n + " lessons chosen";
+  $("select-delete").disabled = n == 0;
+  $("select-all").textContent = n == lessons.length ? "Select none" : "Select all";
+}
+
+function setSelecting(on) {
+  selecting = on ? new Set() : null;
+  showHome();
+}
+
+async function deleteSelected() {
+  const chosen = (await db.getLessons()).filter((l) => selecting.has(l.id));
+  if (chosen.length == 0) return;
+  const unsaved = chosen.filter((l) => !l.exported && !l.backups && !l.backup).length;
+  const what = chosen.length == 1 ? `"${chosen[0].title}" and its recording` : `these ${chosen.length} lessons and their recordings`;
+  if (!confirm(`Delete ${what}? This cannot be undone.` +
+    (unsaved ? `\n\n${unsaved == chosen.length ? (chosen.length == 1 ? "It has" : "They have") : unsaved + " of them " + (unsaved == 1 ? "has" : "have")} not been exported or backed up.` : "") +
+    (chosen.some((l) => l.backups || l.backup) ? "\n\nBackup copies are kept." : ""))) return;
+  for (const l of chosen) await db.deleteLesson(l.id);
+  selecting = null;
+  toast(chosen.length == 1 ? "Deleted 1 lesson." : `Deleted ${chosen.length} lessons.`);
+  showHome();
 }
 
 async function removeLesson(l) {
@@ -1296,7 +1351,15 @@ async function runSummary() {
     const result = await summarise({ key, model: settings.model, lesson: l, recordings, pages: await pageImages(l), formatTime, onStatus: status });
     // the lesson may have been opened again meanwhile: store it on the copy that is being edited, if there is one
     const target = lesson?.id === l.id ? lesson : l;
-    target.ai = l.ai = { ...result, made: new Date().toISOString() };
+    const { title, ...ai } = result;
+    target.ai = l.ai = { ...ai, made: new Date().toISOString() };
+    const renamed = title && target.titleBy !== "student" && (target.titleBy === "ai" || target.title === defaultTitle(target.created));
+    if (renamed) {
+      target.title = l.title = title;
+      target.titleBy = l.titleBy = "ai";
+      if (lesson?.id === target.id) $("title").value = title;
+      $("summary-title").textContent = title;
+    }
     await db.putLesson(target);
   } catch (e) {
     error = e instanceof AiError ? e.message : "Something went wrong: " + e.message;
@@ -1341,6 +1404,15 @@ $("new-lesson").addEventListener("click", async () => {
   openLesson(l.id);
 });
 $("back").addEventListener("click", leaveLesson);
+$("select-lessons").addEventListener("click", () => setSelecting(true));
+$("select-cancel").addEventListener("click", () => setSelecting(false));
+$("select-delete").addEventListener("click", deleteSelected);
+$("select-all").addEventListener("click", async () => {
+  const ids = (await db.getLessons()).map((l) => l.id);
+  selecting = new Set(selecting.size == ids.length ? [] : ids);
+  showHome();
+});
+document.addEventListener("keydown", (e) => e.key === "Escape" && selecting != null && !$("home").hidden && setSelecting(false));
 for (const b of document.querySelectorAll(".open-settings")) b.addEventListener("click", openSettings);
 $("settings").addEventListener("close", () => !$("summary-view").hidden && !summarising && $("quiz").hidden && renderSummary());
 $("ai-key").addEventListener("input", (e) => {
@@ -1445,6 +1517,7 @@ for (const key of Object.keys(SETTING_CHOICES)) {
 }
 $("title").addEventListener("input", (e) => {
   lesson.title = e.target.value.trim() || "Untitled lesson";
+  lesson.titleBy = "student"; // a title typed in is never replaced
   scheduleSave();
 });
 $("rec-start").addEventListener("click", startLesson);

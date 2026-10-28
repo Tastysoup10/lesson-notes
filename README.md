@@ -16,6 +16,8 @@ in the browser. **Summary** has Google's Gemini (free) write a summary, your not
    ones again step by step.
 5. **Pause** / **Resume** pauses both the clock and the recording. **End lesson** when class is over.
 6. Notes save automatically. **Export** (in the lesson, or on the list) saves `<date> <title>.zip` to Downloads.
+7. To delete old lessons, press **Select** on the list, tap the ones to remove, then **Delete** (or use the bin icon
+   on one lesson).
 
 **Listening back:** after the lesson, choose the **🎧 Listen** tool (`L`) and tap anything you wrote: the recording
 plays from a few seconds before you wrote it. The player has a slider for the whole lesson and buttons for your marked
@@ -28,7 +30,8 @@ moments, and the page fades what you hadn't written yet, so the ink follows the 
 2. In the app: **Settings → AI summaries**, paste the key, press **Test**.
 3. After a lesson, press **Summary** (in the lesson, or on the list), then **Summarise**. The recording is uploaded
    to Gemini with the pages; a lesson takes a few minutes. The summary is saved with the lesson and included in
-   exports (`summary.md`, `transcript.txt`). **Copy** puts it on the clipboard for a document.
+   exports (`summary.md`, `transcript.txt`). **Copy** puts it on the clipboard for a document. The lesson is also
+   renamed to what it was about (like "Photosynthesis basics"), unless you typed a title yourself.
 4. **Quiz** (on the summary) has Gemini write multiple-choice practice questions on the lesson. Each answer shows why
    it's right; your best score is kept. **Try again** reuses the questions in a new order; **New questions** asks for
    a fresh set.
