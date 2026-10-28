@@ -11,8 +11,15 @@ in the browser. **Summary** has Google's Gemini (free) write a summary, your not
    allowed to use the microphone. If the microphone is blocked, notes and the clock still work.
 3. Write with the tablet. Tools: Pen, Highlight, Eraser (removes whole strokes), 4 colours, 3 sizes, Undo / Redo.
    Use **+ New page** for more pages.
-4. **Pause** / **Resume** pauses both the clock and the recording. **End lesson** when class is over.
-5. Notes save automatically. **Export** (in the lesson, or on the list) saves `<date> <title>.zip` to Downloads.
+4. While the lesson runs, press **☆ Important** (`I`) to mark something to remember, or **? Confused** (`C`) when
+   you don't follow what's being explained. The AI summary explains each marked moment, and goes over the confusing
+   ones again step by step.
+5. **Pause** / **Resume** pauses both the clock and the recording. **End lesson** when class is over.
+6. Notes save automatically. **Export** (in the lesson, or on the list) saves `<date> <title>.zip` to Downloads.
+
+**Listening back:** after the lesson, choose the **🎧 Listen** tool (`L`) and tap anything you wrote: the recording
+plays from a few seconds before you wrote it. The player has a slider for the whole lesson and buttons for your marked
+moments, and the page fades what you hadn't written yet, so the ink follows the recording.
 
 ## AI summary (Gemini, free)
 
@@ -22,6 +29,9 @@ in the browser. **Summary** has Google's Gemini (free) write a summary, your not
 3. After a lesson, press **Summary** (in the lesson, or on the list), then **Summarise**. The recording is uploaded
    to Gemini with the pages; a lesson takes a few minutes. The summary is saved with the lesson and included in
    exports (`summary.md`, `transcript.txt`). **Copy** puts it on the clipboard for a document.
+4. **Quiz** (on the summary) has Gemini write multiple-choice practice questions on the lesson. Each answer shows why
+   it's right; your best score is kept. **Try again** reuses the questions in a new order; **New questions** asks for
+   a fresh set.
 
 The key is kept in this browser only, never in exports or this repository. Free-tier limits are per day: if they
 run out, try later or choose **Lighter** in Settings. On the free tier Google may use what is sent to improve its
@@ -87,7 +97,7 @@ If Chrome blocks the sign-in window, allow pop-ups for the site (the icon at the
 **Settings** (the gear button): Theme (System, which follows the Chromebook, Light or Dark) and Paper (Lined, Grid,
 Dots or Blank). The paper stays white in dark mode. Settings are kept in this browser.
 
-Keys: `P` pen, `H` highlighter, `E` eraser, `Ctrl+Z` undo, `Ctrl+Y` redo, `←` / `→` pages.
+Keys: `P` pen, `H` highlighter, `E` eraser, `L` listen, `I` important, `C` confused, `Space` play / pause, `Ctrl+Z` undo, `Ctrl+Y` redo, `←` / `→` pages.
 
 If Chrome is closed in the middle of a lesson, the recording is kept up to the last 5 seconds; open the lesson and
 press **● Continue lesson** to carry on (it becomes a second recording file).

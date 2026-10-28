@@ -29,11 +29,19 @@
       </div>
       <div class="topbar-actions">
         <button id="backup-status" class="btn btn-ghost" hidden><svg class="icon"><use id="backup-status-icon" href="assets/icons.svg#cloud"/></svg><span id="backup-status-text"></span></button>
+        <button id="select-lessons" class="btn btn-ghost" title="Choose lessons to delete" hidden><svg class="icon"><use href="assets/icons.svg#check"/></svg>Select</button>
         <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
         <button id="new-lesson" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#plus"/></svg>New lesson</button>
       </div>
     </header>
     <main class="home-main">
+      <div id="select-bar" class="select-bar" hidden>
+        <span id="select-count">Tap lessons to choose them</span>
+        <div class="spacer"></div>
+        <button id="select-all" class="btn btn-ghost">Select all</button>
+        <button id="select-delete" class="btn btn-danger-solid"><svg class="icon"><use href="assets/icons.svg#trash-2"/></svg>Delete</button>
+        <button id="select-cancel" class="btn btn-ghost">Cancel</button>
+      </div>
       <ul id="lesson-list"></ul>
       <div id="empty" class="empty" hidden>
         <svg class="icon empty-icon"><use href="assets/icons.svg#notebook-pen"/></svg>
@@ -55,6 +63,8 @@
         <div id="rec-live" class="rec-live" hidden>
           <span id="rec-status" class="rec-status"><span class="rec-dot"></span><span id="rec-status-text">REC</span></span>
           <span id="clock" title="Lesson time (the recording's time)">0:00</span>
+          <button id="mark-important" class="btn btn-ghost icon-only mark" title="Mark this moment as important (I)"><svg class="icon"><use href="assets/icons.svg#star"/></svg></button>
+          <button id="mark-confused" class="btn btn-ghost icon-only mark" title="I'm confused right now (C): the summary will explain this part again"><svg class="icon"><use href="assets/icons.svg#circle-help"/></svg></button>
           <button id="rec-pause" class="btn btn-ghost icon-only" title="Pause"><svg class="icon"><use id="rec-pause-icon" href="assets/icons.svg#pause"/></svg></button>
           <button id="rec-end" class="btn btn-ghost icon-only" title="End lesson"><svg class="icon"><use href="assets/icons.svg#square"/></svg></button>
         </div>
@@ -66,6 +76,7 @@
         <button data-tool="pen" class="active" title="Pen (P)"><svg class="icon"><use href="assets/icons.svg#pen-line"/></svg></button>
         <button data-tool="highlighter" title="Highlighter (H)"><svg class="icon"><use href="assets/icons.svg#highlighter"/></svg></button>
         <button data-tool="eraser" title="Eraser: removes whole strokes (E)"><svg class="icon"><use href="assets/icons.svg#eraser"/></svg></button>
+        <button data-tool="listen" title="Listen: tap your writing to hear what was being said then (L)"><svg class="icon"><use href="assets/icons.svg#headphones"/></svg></button>
       </div>
       <div class="segment" id="colors">
         <button data-color="black" class="swatch active" title="Black" style="--c:#111827"></button>
@@ -96,6 +107,14 @@
         <span class="pager-sep"></span>
         <button id="add-page" title="New page"><svg class="icon"><use href="assets/icons.svg#file-plus"/></svg></button>
       </nav>
+      <div id="player" class="player" hidden>
+        <button id="player-play" title="Play / pause (space)"><svg class="icon"><use id="player-play-icon" href="assets/icons.svg#pause"/></svg></button>
+        <span id="player-time" class="player-time">0:00</span>
+        <input id="player-seek" type="range" min="0" max="1000" value="0" aria-label="Position in the lesson">
+        <span id="player-length" class="player-time">0:00</span>
+        <div id="player-marks" class="player-marks"></div>
+        <button id="player-close" title="Close"><svg class="icon"><use href="assets/icons.svg#x"/></svg></button>
+      </div>
     </main>
   </section>
 
@@ -105,6 +124,7 @@
       <button id="summary-back" class="btn btn-ghost icon-only" title="Back"><svg class="icon"><use href="assets/icons.svg#arrow-left"/></svg></button>
       <h1 id="summary-title" class="summary-title"></h1>
       <div class="spacer"></div>
+      <button id="summary-quiz" class="btn btn-secondary" title="Practice quiz on this lesson"><svg class="icon"><use href="assets/icons.svg#list-checks"/></svg>Quiz</button>
       <button id="summary-copy" class="btn btn-secondary" title="Copy the summary and transcript, to paste into a document"><svg class="icon"><use href="assets/icons.svg#copy"/></svg>Copy</button>
       <button id="summary-again" class="btn btn-secondary" title="Make the summary again"><svg class="icon"><use href="assets/icons.svg#refresh-cw"/></svg>Redo</button>
       <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
@@ -127,6 +147,13 @@
         <button id="summary-go" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg>Summarise</button>
       </div>
       <article id="summary-body" class="summary-body" hidden></article>
+      <section id="quiz" class="quiz" hidden>
+        <p id="quiz-progress" class="quiz-progress"></p>
+        <h2 id="quiz-question"></h2>
+        <div id="quiz-choices" class="quiz-choices"></div>
+        <p id="quiz-explanation" class="quiz-explanation" hidden></p>
+        <div id="quiz-actions" class="quiz-actions"></div>
+      </section>
       <details id="summary-transcript" class="summary-transcript" hidden>
         <summary>Transcript</summary>
         <div id="summary-transcript-text"></div>

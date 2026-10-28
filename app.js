@@ -5,7 +5,7 @@
 // summary, typed-up notes and a transcript.
 import * as db from "./db.js";
 import { makeZip } from "./zip.js";
-import { summarise, testKey, AiError } from "./ai.js";
+import { summarise, makeQuiz, testKey, AiError } from "./ai.js";
 import { markdownToHtml } from "./markdown.js";
 import * as dropbox from "./dropbox.js";
 import * as drive from "./drive.js";
@@ -147,6 +147,7 @@ function newLessonData() {
     events: [], // { type: start | pause | resume | end | interrupted, clock (ms), wall (ISO time) }
     takes: [], // recordings: { take, clockStart (ms), mime }; a new take starts after the app was reopened mid-lesson
     mic: null, // "ok", or why recording was not possible
+    marks: [], // moments marked during the lesson: { kind: important | confused, clock (ms), page }
     page: { width: PAGE_W, height: PAGE_H },
     pages: [{ strokes: [] }]
   };
@@ -172,6 +173,7 @@ async function saveNow() {
 // --- Home screen -----------------------------------------------------------------------------------------------------
 
 async function showHome() {
+  closePlayer();
   lesson = null;
   $("lesson").hidden = true;
   $("summary-view").hidden = true;
@@ -262,6 +264,7 @@ async function showStorageNote() {
 // --- Lesson screen ---------------------------------------------------------------------------------------------------
 
 async function openLesson(id) {
+  closePlayer();
   lesson = await db.getLesson(id);
   if (lesson.started && !lesson.ended) {
     // the app was closed mid-lesson (recording or paused): the recording up to the last saved chunk is kept, and
@@ -367,11 +370,15 @@ function renderPaper(c) {
   c.stroke();
 }
 
-// One page in page units: the paper, then highlighters under the ink
-function renderPage(c, page) {
+// One page in page units: the paper, then highlighters under the ink. fadeAfter (lesson time): strokes written later
+// are faded, so while listening back the ink follows the recording.
+function renderPage(c, page, fadeAfter = null) {
   renderPaper(c);
+  const faded = (s) => fadeAfter != null && !s.beforeStart && s.points[0][3] > fadeAfter;
+  const fade = (s) => (c.globalAlpha = faded(s) ? 0.18 : 1);
   for (const s of page.strokes) {
     if (s.tool !== "highlighter") continue;
+    fade(s);
     // one path, so the overlapping parts of a highlighter stroke do not darken
     c.strokeStyle = strokeColor(s);
     c.lineWidth = strokeWidth(s, 0.5);
@@ -383,6 +390,18 @@ function renderPage(c, page) {
   }
   for (const s of page.strokes) {
     if (s.tool === "highlighter") continue;
+    fade(s);
+    if (faded(s)) {
+      // one path, so the see-through segments do not show their overlaps
+      c.strokeStyle = strokeColor(s);
+      c.lineWidth = strokeWidth(s, 0.5);
+      c.lineCap = c.lineJoin = "round";
+      c.beginPath();
+      c.moveTo(s.points[0][0], s.points[0][1]);
+      for (const p of s.points) c.lineTo(p[0], p[1]);
+      c.stroke();
+      continue;
+    }
     for (let i = 1; i < s.points.length; i++) drawSegment(c, s, s.points[i - 1], s.points[i]);
   }
 }
@@ -390,7 +409,7 @@ function renderPage(c, page) {
 function redraw() {
   if (lesson == null) return;
   ctx.save();
-  renderPage(ctx, lesson.pages[pageIndex]);
+  renderPage(ctx, lesson.pages[pageIndex], player.at);
   ctx.restore();
 }
 
@@ -407,6 +426,10 @@ canvas.addEventListener("pointerdown", (e) => {
   if (lesson == null || (e.pointerType === "mouse" && e.button !== 0)) return;
   canvas.setPointerCapture(e.pointerId);
   const p = pointFrom(e);
+  if (tool === "listen") {
+    listenAt(p);
+    return;
+  }
   if (tool === "eraser") {
     erasing = [];
     eraseAt(p);
@@ -563,6 +586,7 @@ function recordingMime() {
 
 // Starts (or, after End or a reload, continues) the lesson: the clock and, if the microphone is allowed, a recording
 async function startLesson() {
+  closePlayer(); // not while recording
   $("rec-start").disabled = true;
   const take = { take: lesson.takes.length + 1, clockStart: Math.round(clock.now()), mime: recordingMime() };
   try {
@@ -660,6 +684,136 @@ function updateClock() {
   $("clock").textContent = formatTime(clock.now());
 }
 
+// --- Marks: Important / Confused, pressed during the lesson ------------------------------------------------------------
+
+function addMark(kind) {
+  if (lesson == null || !lessonActive()) return;
+  const t = Math.round(clock.now());
+  (lesson.marks ??= []).push({ kind, clock: t, page: pageIndex });
+  const b = $("mark-" + kind);
+  b.classList.remove("flash");
+  void b.offsetWidth; // restart the animation
+  b.classList.add("flash");
+  toast(kind === "important"
+    ? `Marked as important at ${formatTime(t)}.`
+    : `Marked as confusing at ${formatTime(t)}. The summary will explain this part again.`);
+  scheduleSave();
+}
+
+// --- Replay: tap the writing to hear what was being said when it was written -------------------------------------------
+
+// takes: the lesson's recordings as playable files ({ clockStart, url }); index: the one in audio; at: the lesson time
+// being played (the page fades what was written after it), or null when the player is closed
+const player = { lessonId: null, takes: [], index: -1, audio: null, at: null, seeking: false };
+
+async function loadReplay() {
+  if (player.lessonId === lesson.id) return player.takes;
+  closePlayer();
+  for (const take of lesson.takes) {
+    const chunks = await db.getAudioChunks(lesson.id, take.take);
+    if (chunks.length > 0) player.takes.push({ clockStart: take.clockStart, url: URL.createObjectURL(new Blob(chunks, { type: take.mime })) });
+  }
+  player.lessonId = lesson.id;
+  return player.takes;
+}
+
+function closePlayer() {
+  player.audio?.pause();
+  for (const take of player.takes) URL.revokeObjectURL(take.url);
+  Object.assign(player, { lessonId: null, takes: [], index: -1, audio: null, at: null });
+  $("player").hidden = true;
+  if (lesson != null && !$("lesson").hidden) redraw();
+}
+
+// Opens the player at lesson time t (ms), playing unless play is false
+async function playAt(t, play = true) {
+  if (lessonActive()) {
+    toast("End the lesson to listen back.");
+    return;
+  }
+  const takes = await loadReplay();
+  if (takes.length == 0) {
+    toast(lesson.takes.length ? "The recording of this lesson is missing." : "This lesson has no recording to listen to.");
+    return;
+  }
+  t = Math.max(0, Math.min(t, lesson.clockMs));
+  const i = Math.max(0, takes.findLastIndex((take) => take.clockStart <= t));
+  await playTake(i, t - takes[i].clockStart, play);
+}
+
+async function playTake(i, offsetMs, play) {
+  if (player.index !== i) {
+    player.audio?.pause();
+    const audio = new Audio(player.takes[i].url);
+    await new Promise((resolve) => {
+      audio.onloadedmetadata = resolve;
+      audio.onerror = resolve;
+    });
+    if (!Number.isFinite(audio.duration)) {
+      // a recording saved in chunks doesn't say how long it is, so Chrome can't jump around in it until it has
+      // looked through it: asking for a time far past the end makes it do that
+      audio.currentTime = 1e101;
+      await Promise.race([new Promise((r) => audio.addEventListener("durationchange", r, { once: true })), new Promise((r) => setTimeout(r, 3000))]);
+    }
+    audio.ontimeupdate = audio.onplay = audio.onpause = updatePlayer;
+    // one recording ends: the next one (after an interruption) carries on
+    audio.onended = () => (i + 1 < player.takes.length ? playTake(i + 1, 0, true) : updatePlayer());
+    player.audio = audio;
+    player.index = i;
+  }
+  player.audio.currentTime = Math.max(0, offsetMs / 1000);
+  $("player").hidden = false;
+  showMarkChips();
+  if (play) await player.audio.play().catch(() => {});
+  updatePlayer();
+}
+
+function playerTime() {
+  return player.takes[player.index].clockStart + player.audio.currentTime * 1000;
+}
+
+function updatePlayer() {
+  if (player.audio == null) return;
+  const t = Math.min(playerTime(), lesson.clockMs);
+  $("player-time").textContent = formatTime(t);
+  $("player-length").textContent = formatTime(lesson.clockMs);
+  if (!player.seeking) $("player-seek").value = Math.round((t / Math.max(1, lesson.clockMs)) * 1000);
+  $("player-play-icon").setAttribute("href", "assets/icons.svg#" + (player.audio.paused ? "play" : "pause"));
+  player.at = t;
+  redraw();
+}
+
+// The marked moments as buttons in the player: a little before each, to hear what led up to it
+function showMarkChips() {
+  const chips = $("player-marks");
+  chips.replaceChildren();
+  for (const m of lesson.marks ?? []) {
+    const label = (m.kind === "confused" ? "Confused " : "Important ") + formatTime(m.clock);
+    chips.append(button(label, m.kind === "confused" ? "circle-help" : "star", () => {
+      goToPage(m.page);
+      playAt(m.clock - (m.kind === "confused" ? 30000 : 10000));
+    }, "mark-chip " + m.kind, "Listen to the moment you marked"));
+  }
+}
+
+// The Listen tool: the stroke nearest the tap, and the recording from a few seconds before it was written
+function listenAt(p) {
+  let best = null;
+  let bestDistance = 24;
+  for (const s of lesson.pages[pageIndex].strokes) {
+    for (let k = 1; k < s.points.length; k++) {
+      const d = distanceToSegment(p, s.points[k - 1], s.points[k]) - strokeWidth(s, 1) / 2;
+      if (d < bestDistance) {
+        best = s;
+        bestDistance = d;
+      }
+    }
+  }
+  if (best == null) toast("Tap on something you wrote to hear that moment.");
+  else if (best.beforeStart) toast("That was written before the lesson started, so there's nothing to hear.");
+  else playAt(best.points[0][3] - 3000);
+}
+
 // --- Export ----------------------------------------------------------------------------------------------------------
 
 async function exportLesson(target) {
@@ -692,6 +846,7 @@ async function exportLesson(target) {
     durationMs: l.clockMs,
     mic: l.mic,
     events: l.events,
+    marks: l.marks ?? [],
     // each recording file starts at clockStart on the lesson clock; stroke times (the 4th number of each point, ms)
     // are on the same clock, so a point at time t was drawn (t - clockStart) ms into that file
     recordings: takes,
@@ -992,7 +1147,8 @@ function renderSummary(error = null) {
   $("summary-error-text").textContent = error ?? "";
   $("summary-start").hidden = summarising || error != null || ai != null;
   $("summary-body").hidden = $("summary-transcript").hidden = summarising || ai == null;
-  $("summary-copy").disabled = $("summary-again").disabled = summarising || ai == null;
+  $("summary-copy").disabled = $("summary-again").disabled = $("summary-quiz").disabled = summarising || ai == null;
+  $("quiz").hidden = true;
   $("summary-meta").textContent = "";
   if (ai == null) {
     $("summary-start-text").textContent = aiKey()
@@ -1015,6 +1171,101 @@ function renderSummary(error = null) {
   }
   $("summary-meta").textContent = `Made by ${ai.model} on ${new Date(ai.made).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.` +
     (ai.truncated ? " Gemini's reply was cut short, so the end may be missing; Redo may give a complete one." : "");
+}
+
+// --- Quiz: practice questions from the summary ------------------------------------------------------------------------
+
+let quiz = null; // { questions, i (current), score, answered } while a quiz is shown
+
+// fresh: new questions from Gemini (otherwise the lesson's saved quiz, if it has one)
+async function startQuiz(fresh) {
+  const l = summaryLesson;
+  if (l.ai == null) return;
+  if (fresh || l.quiz == null) {
+    if (!aiKey()) return openSettings();
+    for (const id of ["summary-error", "summary-start", "summary-body", "summary-transcript", "quiz"]) $(id).hidden = true;
+    $("summary-status").hidden = false;
+    $("summary-status-text").textContent = "Gemini is writing your quiz…";
+    $("summary-progress").hidden = true;
+    $("summary-quiz").disabled = true;
+    try {
+      const questions = await makeQuiz({ key: aiKey(), model: settings.model, title: l.title, summary: l.ai.summary, transcript: l.ai.transcript });
+      const copy = lesson?.id === l.id ? lesson : l;
+      copy.quiz = l.quiz = { made: new Date().toISOString(), questions, best: null };
+      await db.putLesson(copy);
+    } catch (e) {
+      $("summary-status").hidden = true;
+      if (summaryLesson === l) renderSummary(e instanceof AiError ? e.message : "Something went wrong: " + e.message);
+      return;
+    }
+    $("summary-status").hidden = true;
+    $("summary-quiz").disabled = false;
+    if (summaryLesson !== l || $("summary-view").hidden) return;
+  }
+  // the questions in a new order each time
+  const questions = [...l.quiz.questions].sort(() => Math.random() - 0.5);
+  quiz = { questions, i: 0, score: 0, answered: false };
+  showQuiz();
+}
+
+function showQuiz() {
+  for (const id of ["summary-status", "summary-error", "summary-start", "summary-body", "summary-transcript"]) $(id).hidden = true;
+  $("summary-meta").textContent = "";
+  $("quiz").hidden = false;
+  const choices = $("quiz-choices");
+  const actions = $("quiz-actions");
+  choices.replaceChildren();
+  actions.replaceChildren();
+  $("quiz-explanation").hidden = true;
+  const n = quiz.questions.length;
+  const q = quiz.questions[quiz.i];
+  if (q == null) {
+    // the end
+    const l = summaryLesson;
+    const first = l.quiz.best == null;
+    const improved = !first && quiz.score > l.quiz.best;
+    if (first || improved) {
+      l.quiz.best = quiz.score;
+      db.putLesson(lesson?.id === l.id ? Object.assign(lesson, { quiz: l.quiz }) : l);
+    }
+    $("quiz-progress").textContent = "Quiz finished";
+    $("quiz-question").textContent = quiz.score == n ? "Perfect, every answer right!" : quiz.score >= n * 0.7 ? "Well done!" : "Keep going: try it again after rereading the summary.";
+    choices.append(el("p", "quiz-score", `${quiz.score} / ${n}`));
+    if (improved) choices.append(el("p", "hint good", "Your best score on this lesson."));
+    else if (!first) choices.append(el("p", "hint", `Your best: ${l.quiz.best} / ${n}`));
+    actions.append(
+      button("Try again", "refresh-cw", () => startQuiz(false), "btn btn-primary"),
+      button("New questions", "sparkles", () => startQuiz(true), "btn btn-secondary"),
+      button("Back to summary", "arrow-left", () => renderSummary(), "btn btn-ghost")
+    );
+    return;
+  }
+  $("quiz-progress").textContent = `Question ${quiz.i + 1} of ${n} · ${quiz.score} right`;
+  $("quiz-question").textContent = q.question;
+  q.choices.forEach((text, k) => {
+    const b = el("button", "", text);
+    b.addEventListener("click", () => answerQuiz(k));
+    choices.append(b);
+  });
+  actions.append(button("Back to summary", "arrow-left", () => renderSummary(), "btn btn-ghost"));
+}
+
+function answerQuiz(k) {
+  const q = quiz.questions[quiz.i];
+  const buttons = [...$("quiz-choices").children];
+  for (const b of buttons) b.disabled = true;
+  buttons[q.answer].classList.add("right");
+  if (k === q.answer) quiz.score++;
+  else buttons[k].classList.add("wrong");
+  const explanation = $("quiz-explanation");
+  explanation.hidden = false;
+  explanation.textContent = (k === q.answer ? "Right! " : "Not quite. ") + q.explanation;
+  $("quiz-progress").textContent = `Question ${quiz.i + 1} of ${quiz.questions.length} · ${quiz.score} right`;
+  const last = quiz.i + 1 == quiz.questions.length;
+  $("quiz-actions").replaceChildren(button(last ? "See my score" : "Next question", "chevron-right", () => {
+    quiz.i++;
+    showQuiz();
+  }, "btn btn-primary"));
 }
 
 async function runSummary() {
@@ -1091,7 +1342,7 @@ $("new-lesson").addEventListener("click", async () => {
 });
 $("back").addEventListener("click", leaveLesson);
 for (const b of document.querySelectorAll(".open-settings")) b.addEventListener("click", openSettings);
-$("settings").addEventListener("close", () => !$("summary-view").hidden && !summarising && renderSummary());
+$("settings").addEventListener("close", () => !$("summary-view").hidden && !summarising && $("quiz").hidden && renderSummary());
 $("ai-key").addEventListener("input", (e) => {
   try {
     localStorage.setItem(AI_KEY, e.target.value.trim());
@@ -1172,6 +1423,7 @@ $("summary-back").addEventListener("click", leaveSummary);
 $("summary-go").addEventListener("click", runSummary);
 $("summary-again").addEventListener("click", runSummary);
 $("summary-retry").addEventListener("click", runSummary);
+$("summary-quiz").addEventListener("click", () => startQuiz(false));
 $("summary-copy").addEventListener("click", async () => {
   const ai = summaryLesson.ai;
   const text = `# ${summaryLesson.title}\n\n${ai.summary}` + (ai.transcript ? `\n\n## Transcript\n\n${ai.transcript}` : "");
@@ -1210,9 +1462,31 @@ $("export").addEventListener("click", () => exportLesson(lesson));
 function choose(groupId, attr, value) {
   for (const b of $(groupId).querySelectorAll("button")) b.classList.toggle("active", b.dataset[attr] === String(value));
 }
+function chooseTool(t) {
+  choose("tools", "tool", (tool = t));
+  canvas.style.cursor = t === "listen" ? "pointer" : "";
+  // the Listen tool opens the player (paused) with the marked moments
+  if (t === "listen" && $("player").hidden && !lessonActive() && lesson.takes.length > 0) playAt(0, false);
+}
 $("tools").addEventListener("click", (e) => {
   const t = e.target.closest("button")?.dataset.tool;
-  if (t) choose("tools", "tool", (tool = t));
+  if (t) chooseTool(t);
+});
+$("mark-important").addEventListener("click", () => addMark("important"));
+$("mark-confused").addEventListener("click", () => addMark("confused"));
+$("player-play").addEventListener("click", () => {
+  if (player.audio == null) return;
+  if (player.audio.paused) player.audio.play().catch(() => {});
+  else player.audio.pause();
+});
+$("player-close").addEventListener("click", closePlayer);
+$("player-seek").addEventListener("input", (e) => {
+  player.seeking = true;
+  $("player-time").textContent = formatTime((e.target.value / 1000) * lesson.clockMs);
+});
+$("player-seek").addEventListener("change", (e) => {
+  player.seeking = false;
+  playAt((e.target.value / 1000) * lesson.clockMs, !player.audio?.paused);
 });
 $("colors").addEventListener("click", (e) => {
   const c = e.target.closest("button")?.dataset.color;
@@ -1232,9 +1506,16 @@ document.addEventListener("keydown", (e) => {
   } else if ((e.ctrlKey || e.metaKey) && key === "y") {
     e.preventDefault();
     redo();
-  } else if (key === "p") choose("tools", "tool", (tool = "pen"));
-  else if (key === "h") choose("tools", "tool", (tool = "highlighter"));
-  else if (key === "e") choose("tools", "tool", (tool = "eraser"));
+  } else if (key === "p") chooseTool("pen");
+  else if (key === "h") chooseTool("highlighter");
+  else if (key === "e") chooseTool("eraser");
+  else if (key === "l") chooseTool("listen");
+  else if (key === "i") addMark("important");
+  else if (key === "c") addMark("confused");
+  else if (key === " " && player.audio != null) {
+    e.preventDefault();
+    $("player-play").click();
+  }
   else if (e.key === "ArrowLeft") goToPage(pageIndex - 1);
   else if (e.key === "ArrowRight") goToPage(pageIndex + 1);
 });
