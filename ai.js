@@ -158,7 +158,8 @@ export async function summarise({ key, model, lesson, recordings, pages, formatT
       parts.push({ file_data: { mime_type: f.mime, file_uri: f.uri } });
     });
     for (let i = 0; i < pages.length; i++) {
-      parts.push({ text: `Notes page ${i + 1} of ${pages.length} (${writingTimes(lesson.pages[i], formatTime)}):` });
+      const typed = lesson.pages[i].strokes.filter((s) => s.tool === "text").map((s) => s.text);
+      parts.push({ text: `Notes page ${i + 1} of ${pages.length} (${writingTimes(lesson.pages[i], formatTime)}):` + (typed.length ? `\nText typed on this page (also in the image): ${JSON.stringify(typed)}` : "") });
       parts.push({ inline_data: { mime_type: "image/png", data: await blobToBase64(pages[i]) } });
     }
     onStatus(uploaded.length > 0 ? "Gemini is listening to the lesson and reading your notes…" : "Gemini is reading your notes…", null);

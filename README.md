@@ -9,7 +9,11 @@ in the browser. **Summary** has Google's Gemini (free) write a summary, your not
 1. Open the site and press **+ New lesson**.
 2. When class starts, press **● Start lesson**. The lesson clock starts, and the lesson is recorded if Chrome is
    allowed to use the microphone. If the microphone is blocked, notes and the clock still work.
-3. Write with the tablet. Tools: Pen, Highlight, Eraser (removes whole strokes), 4 colours, 3 sizes, Undo / Redo.
+3. Write with the tablet. Tools: Pen, Highlight, Eraser (removes whole strokes), **Text** (tap the page and type;
+   tap typed text to change it; `Ctrl+Enter` or tapping elsewhere finishes, `Esc` cancels), **Line** (straight lines
+   that snap level, upright or 45°), 4 colours, 3 sizes (also the text size), Undo / Redo.
+   While recording, the small bar next to **REC** shows the microphone level. If it hears nothing for 30 seconds (or
+   the microphone is unplugged), the bar turns red and a message says so.
    Use **+ New page** for more pages.
 4. While the lesson runs, press **☆ Important** (`I`) to mark something to remember, or **? Confused** (`C`) when
    you don't follow what's being explained. The AI summary explains each marked moment, and goes over the confusing
@@ -100,7 +104,7 @@ If Chrome blocks the sign-in window, allow pop-ups for the site (the icon at the
 **Settings** (the gear button): Theme (System, which follows the Chromebook, Light or Dark) and Paper (Lined, Grid,
 Dots or Blank). The paper stays white in dark mode. Settings are kept in this browser.
 
-Keys: `P` pen, `H` highlighter, `E` eraser, `L` listen, `I` important, `C` confused, `Space` play / pause, `Ctrl+Z` undo, `Ctrl+Y` redo, `←` / `→` pages.
+Keys: `P` pen, `H` highlighter, `E` eraser, `T` text, `N` line, `L` listen, `I` important, `C` confused, `Space` play / pause, `Ctrl+Z` undo, `Ctrl+Y` redo, `←` / `→` pages.
 
 If Chrome is closed in the middle of a lesson, the recording is kept up to the last 5 seconds; open the lesson and
 press **● Continue lesson** to carry on (it becomes a second recording file).

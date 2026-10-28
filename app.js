@@ -359,6 +359,7 @@ async function leaveLesson() {
 // --- Drawing ---------------------------------------------------------------------------------------------------------
 
 function fit() {
+  closeTextEditor(true);
   const stage = $("stage");
   // leave a margin round the page, and room below it for the page switcher (the stage's bottom padding)
   const margin = 24;
@@ -444,8 +445,12 @@ function renderPage(c, page, fadeAfter = null) {
     c.stroke();
   }
   for (const s of page.strokes) {
-    if (s.tool === "highlighter") continue;
+    if (s.tool === "highlighter" || s === typing?.old) continue; // (typed text being changed shows in its editor)
     fade(s);
+    if (s.tool === "text") {
+      drawText(c, s);
+      continue;
+    }
     if (faded(s)) {
       // one path, so the see-through segments do not show their overlaps
       c.strokeStyle = strokeColor(s);
@@ -468,6 +473,95 @@ function redraw() {
   ctx.restore();
 }
 
+// --- Typed text: { tool: "text", text, fontSize, w, h (its box), color, points: [[x, y (top left), 0.5, time]] } -------
+
+const TEXT_SIZES = { 2: 30, 4: 42, 8: 60 }; // font size in page units for each size button
+const textFont = (px) => `500 ${px}px Inter, system-ui, sans-serif`;
+const measurer = document.createElement("canvas").getContext("2d");
+
+function drawText(c, s) {
+  c.fillStyle = COLORS[s.color];
+  c.font = textFont(s.fontSize);
+  c.textBaseline = "top";
+  s.text.split("\n").forEach((line, i) => c.fillText(line, s.points[0][0], s.points[0][1] + i * s.fontSize * 1.3));
+}
+
+function textBox(text, fontSize) {
+  measurer.font = textFont(fontSize);
+  const lines = text.split("\n");
+  return { w: Math.ceil(Math.max(...lines.map((l) => measurer.measureText(l).width))), h: Math.ceil(lines.length * fontSize * 1.3) };
+}
+
+// The text being typed: { box (the textarea), x, y, fontSize, color, time, beforeStart, old (the text item being changed) }
+let typing = null;
+
+function openTextEditor(p, old = null) {
+  closeTextEditor(true);
+  const fontSize = old?.fontSize ?? TEXT_SIZES[size];
+  // a tap puts the middle of the first line there
+  const [x, y] = old ? old.points[0] : [p[0], Math.max(0, p[1] - fontSize * 0.65)];
+  const box = el("textarea", "text-editor");
+  box.value = old?.text ?? "";
+  box.rows = 1;
+  box.style.font = textFont(fontSize * viewScale);
+  box.style.color = COLORS[old?.color ?? color];
+  const page = canvas.getBoundingClientRect();
+  const stage = $("stage").getBoundingClientRect();
+  box.style.left = page.left - stage.left + x * viewScale + "px";
+  box.style.top = page.top - stage.top + y * viewScale + "px";
+  box.style.maxWidth = (PAGE_W - x) * viewScale + "px";
+  typing = { box, x, y, fontSize, color: old?.color ?? color, time: old?.points[0][3] ?? Math.round(clock.now()), beforeStart: old?.beforeStart ?? !lesson.started, old };
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // typing is not a shortcut
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeTextEditor(false);
+    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      closeTextEditor(true);
+    }
+  });
+  box.addEventListener("blur", () => closeTextEditor(true));
+  $("stage").append(box);
+  redraw();
+  setTimeout(() => box.focus());
+}
+
+// save: keep what was typed (an empty box removes the text); otherwise put back what was there
+function closeTextEditor(save) {
+  if (typing == null) return;
+  const t = typing;
+  typing = null;
+  t.box.remove();
+  const text = t.box.value.replace(/\s+$/, "");
+  const strokes = lesson.pages[pageIndex].strokes;
+  if (save && text !== (t.old?.text ?? "")) {
+    const item = text ? { tool: "text", color: t.color, size, fontSize: t.fontSize, text, beforeStart: t.beforeStart, points: [[t.x, t.y, 0.5, t.time]], ...textBox(text, t.fontSize) } : null;
+    if (t.old) {
+      const index = strokes.indexOf(t.old);
+      strokes.splice(index, 1, ...(item ? [item] : []));
+      pushUndo({ type: "edit", page: pageIndex, before: t.old, after: item, index });
+    } else if (item) {
+      strokes.push(item);
+      pushUndo({ type: "add", page: pageIndex, stroke: item });
+    }
+    scheduleSave();
+  }
+  redraw();
+}
+
+// --- Straight lines: snapped to level, upright or 45° when close -------------------------------------------------------
+
+function snapLine(a, p) {
+  const dx = p[0] - a[0];
+  const dy = p[1] - a[1];
+  const angle = Math.atan2(dy, dx);
+  const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  if (Math.abs(angle - snapped) > 0.12) return [p[0], p[1], 0.5, p[3]];
+  const length = Math.hypot(dx, dy);
+  return [Math.round((a[0] + Math.cos(snapped) * length) * 10) / 10, Math.round((a[1] + Math.sin(snapped) * length) * 10) / 10, 0.5, p[3]];
+}
+
 // [x, y, pressure, lesson time in ms]
 function pointFrom(e) {
   const rect = canvas.getBoundingClientRect();
@@ -479,8 +573,19 @@ function pointFrom(e) {
 
 canvas.addEventListener("pointerdown", (e) => {
   if (lesson == null || (e.pointerType === "mouse" && e.button !== 0)) return;
-  canvas.setPointerCapture(e.pointerId);
   const p = pointFrom(e);
+  if (tool === "text") {
+    // tapping typed text changes it; anywhere else starts new text
+    e.preventDefault();
+    const old = lesson.pages[pageIndex].strokes.findLast((s) => s.tool === "text" && distanceTo(s, p) < 6);
+    openTextEditor(p, old ?? null);
+    return;
+  }
+  canvas.setPointerCapture(e.pointerId);
+  if (tool === "line") {
+    current = { tool: "pen", color, size, beforeStart: !lesson.started, points: [[p[0], p[1], 0.5, p[3]], [p[0], p[1], 0.5, p[3]]], line: true };
+    return;
+  }
   if (tool === "listen") {
     listenAt(p);
     return;
@@ -498,6 +603,15 @@ canvas.addEventListener("pointerdown", (e) => {
 
 canvas.addEventListener("pointermove", (e) => {
   if (current == null && erasing == null) return;
+  if (current?.line) {
+    // the line so far, drawn over the page
+    current.points[1] = snapLine(current.points[0], pointFrom(e));
+    redraw();
+    ctx.save();
+    drawSegment(ctx, current, current.points[0], current.points[1]);
+    ctx.restore();
+    return;
+  }
   for (const ev of e.getCoalescedEvents?.() ?? [e]) {
     const p = pointFrom(ev);
     if (erasing != null) {
@@ -516,6 +630,11 @@ function finishGesture() {
     const stroke = current;
     current = null;
     ctx.globalCompositeOperation = "source-over";
+    if (stroke.line) {
+      delete stroke.line;
+      const [a, b] = stroke.points;
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) return redraw(); // a tap, not a line
+    }
     if (stroke.points.length == 1) stroke.points.push([...stroke.points[0]]);
     lesson.pages[pageIndex].strokes.push(stroke);
     pushUndo({ type: "add", page: pageIndex, stroke });
@@ -540,16 +659,24 @@ function distanceToSegment(p, a, b) {
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
 
+// How far p is from what a stroke drew (0 inside typed text's box)
+function distanceTo(s, p) {
+  if (s.tool === "text") {
+    const [x, y] = s.points[0];
+    return Math.hypot(Math.max(x - p[0], 0, p[0] - x - s.w), Math.max(y - p[1], 0, p[1] - y - s.h));
+  }
+  let d = Infinity;
+  for (let k = 1; k < s.points.length; k++) d = Math.min(d, distanceToSegment(p, s.points[k - 1], s.points[k]));
+  return d - strokeWidth(s, 1) / 2;
+}
+
 // Removes every stroke the eraser touches (whole strokes, so the notes stay clean for the AI)
 function eraseAt(p) {
   const strokes = lesson.pages[pageIndex].strokes;
   let changed = false;
   for (let i = strokes.length - 1; i >= 0; i--) {
     const s = strokes[i];
-    const reach = ERASER_RADIUS + strokeWidth(s, 1) / 2;
-    let hit = false;
-    for (let k = 1; k < s.points.length && !hit; k++) hit = distanceToSegment(p, s.points[k - 1], s.points[k]) < reach;
-    if (hit) {
+    if (distanceTo(s, p) < ERASER_RADIUS) {
       erasing.push({ stroke: s, index: i });
       strokes.splice(i, 1);
       changed = true;
@@ -571,6 +698,12 @@ function apply(action, undo) {
   if (action.type === "add") {
     if (undo) strokes.splice(strokes.lastIndexOf(action.stroke), 1);
     else strokes.push(action.stroke);
+  } else if (action.type === "edit") {
+    // typed text changed (or emptied): swap one version for the other
+    const [from, to] = undo ? [action.after, action.before] : [action.before, action.after];
+    const i = from ? strokes.indexOf(from) : -1;
+    if (i >= 0) strokes.splice(i, 1, ...(to ? [to] : []));
+    else if (to) strokes.splice(action.index, 0, to);
   } else if (undo) {
     // put erased strokes back where they were (lowest index first)
     for (const { stroke, index } of [...action.items].sort((a, b) => a.index - b.index)) strokes.splice(index, 0, stroke);
@@ -584,6 +717,7 @@ function apply(action, undo) {
 }
 
 function undo() {
+  closeTextEditor(true);
   const action = undoStack.pop();
   if (action == null) return;
   apply(action, true);
@@ -592,6 +726,7 @@ function undo() {
 }
 
 function redo() {
+  closeTextEditor(true);
   const action = redoStack.pop();
   if (action == null) return;
   apply(action, false);
@@ -607,6 +742,7 @@ function updateUndoUi() {
 // --- Pages -----------------------------------------------------------------------------------------------------------
 
 function goToPage(i) {
+  closeTextEditor(true);
   pageIndex = Math.max(0, Math.min(lesson.pages.length - 1, i));
   updatePageUi();
   redraw();
@@ -653,8 +789,12 @@ async function startLesson() {
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) db.putAudioChunk(lessonId, take.take, chunk++, e.data).catch((err) => toast("Could not save the recording: " + err.message));
     };
-    recorder.onstop = () => stream.getTracks().forEach((t) => t.stop());
+    recorder.onstop = () => {
+      stopMicWatch();
+      stream.getTracks().forEach((t) => t.stop());
+    };
     recorder.start(AUDIO_CHUNK_MS);
+    watchMic(stream);
     lesson.takes.push(take);
     lesson.mic = "ok";
   } catch (e) {
@@ -706,6 +846,67 @@ async function endLesson() {
   await saveNow();
 }
 
+// --- Microphone check: a level meter while recording, and a warning if it hears nothing ---------------------------------
+
+const MIC_QUIET_MS = 30000; // this long without sound (while the clock runs) and the student is warned
+const mic = { context: null, timer: null, quietSince: 0, warned: false };
+
+function watchMic(stream) {
+  stopMicWatch();
+  let analyser;
+  try {
+    mic.context = new AudioContext();
+    analyser = mic.context.createAnalyser();
+    analyser.fftSize = 1024;
+    mic.context.createMediaStreamSource(stream).connect(analyser);
+  } catch {
+    return; // no meter, but the recording itself is fine
+  }
+  const samples = new Float32Array(analyser.fftSize);
+  mic.quietSince = performance.now();
+  mic.warned = false;
+  for (const track of stream.getAudioTracks()) {
+    track.addEventListener("ended", () => {
+      if (lesson == null || !lessonActive()) return;
+      setMicWarning(true);
+      toast("The microphone stopped (unplugged or turned off?). Press End lesson, then Continue lesson to start recording again.");
+    });
+  }
+  mic.timer = setInterval(() => {
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const v of samples) sum += v * v;
+    // loudness from -60 dB (silence) to -15 dB (someone talking nearby) as 0 to 1
+    const level = Math.max(0, Math.min(1, (20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9) + 60) / 45));
+    $("mic-level-bar").style.width = Math.round(level * 100) + "%";
+    const now = performance.now();
+    if (!clock.running || level > 0.12) {
+      mic.quietSince = now;
+      if (mic.warned) {
+        mic.warned = false;
+        setMicWarning(false);
+      }
+    } else if (!mic.warned && now - mic.quietSince > MIC_QUIET_MS) {
+      mic.warned = true;
+      setMicWarning(true);
+      toast("The microphone hasn't heard anything for 30 seconds. Check it isn't muted, covered or unplugged.");
+    }
+  }, 100);
+}
+
+function stopMicWatch() {
+  clearInterval(mic.timer);
+  mic.context?.close().catch(() => {});
+  mic.context = null;
+  $("mic-level-bar").style.width = "0";
+  setMicWarning(false);
+}
+
+function setMicWarning(on) {
+  $("mic-level").classList.toggle("quiet", on);
+  $("mic-level").title = on ? "The microphone isn't hearing anything" : "Microphone level: it moves when the microphone hears sound";
+}
+
 async function keepScreenOn() {
   // a sleeping Chromebook would stop the recording
   try {
@@ -727,6 +928,7 @@ function updateRecordingUi() {
   const status = $("rec-status");
   status.className = "rec-status" + (running ? " on" : "") + (recorder == null ? " nomic" : "");
   status.title = recorder == null ? "Not recording: no microphone. The lesson clock still runs." : "";
+  $("mic-level").hidden = recorder == null;
   $("rec-status-text").textContent = !running ? "PAUSED" : recorder != null ? "REC" : "NO MIC";
   $("export").disabled = active;
   $("summarise").disabled = active;
@@ -856,12 +1058,10 @@ function listenAt(p) {
   let best = null;
   let bestDistance = 24;
   for (const s of lesson.pages[pageIndex].strokes) {
-    for (let k = 1; k < s.points.length; k++) {
-      const d = distanceToSegment(p, s.points[k - 1], s.points[k]) - strokeWidth(s, 1) / 2;
-      if (d < bestDistance) {
-        best = s;
-        bestDistance = d;
-      }
+    const d = distanceTo(s, p);
+    if (d < bestDistance) {
+      best = s;
+      bestDistance = d;
     }
   }
   if (best == null) toast("Tap on something you wrote to hear that moment.");
@@ -1536,8 +1736,9 @@ function choose(groupId, attr, value) {
   for (const b of $(groupId).querySelectorAll("button")) b.classList.toggle("active", b.dataset[attr] === String(value));
 }
 function chooseTool(t) {
+  closeTextEditor(true);
   choose("tools", "tool", (tool = t));
-  canvas.style.cursor = t === "listen" ? "pointer" : "";
+  canvas.style.cursor = { listen: "pointer", text: "text" }[t] ?? "";
   // the Listen tool opens the player (paused) with the marked moments
   if (t === "listen" && $("player").hidden && !lessonActive() && lesson.takes.length > 0) playAt(0, false);
 }
@@ -1571,7 +1772,7 @@ $("sizes").addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (lesson == null || $("lesson").hidden || e.target.tagName === "INPUT" || $("settings").open) return;
+  if (lesson == null || $("lesson").hidden || /^(INPUT|TEXTAREA)$/.test(e.target.tagName) || $("settings").open) return;
   const key = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && key === "z") {
     e.preventDefault();
@@ -1583,6 +1784,8 @@ document.addEventListener("keydown", (e) => {
   else if (key === "h") chooseTool("highlighter");
   else if (key === "e") chooseTool("eraser");
   else if (key === "l") chooseTool("listen");
+  else if (key === "t") chooseTool("text");
+  else if (key === "n") chooseTool("line");
   else if (key === "i") addMark("important");
   else if (key === "c") addMark("confused");
   else if (key === " " && player.audio != null) {

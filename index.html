@@ -62,6 +62,7 @@
         <button id="rec-start" class="btn btn-record"><span class="rec-dot"></span><span id="rec-start-label">Start lesson</span></button>
         <div id="rec-live" class="rec-live" hidden>
           <span id="rec-status" class="rec-status"><span class="rec-dot"></span><span id="rec-status-text">REC</span></span>
+          <span id="mic-level" class="mic-level" title="Microphone level: it moves when the microphone hears sound"><span id="mic-level-bar"></span></span>
           <span id="clock" title="Lesson time (the recording's time)">0:00</span>
           <button id="mark-important" class="btn btn-ghost icon-only mark" title="Mark this moment as important (I)"><svg class="icon"><use href="assets/icons.svg#star"/></svg></button>
           <button id="mark-confused" class="btn btn-ghost icon-only mark" title="I'm confused right now (C): the summary will explain this part again"><svg class="icon"><use href="assets/icons.svg#circle-help"/></svg></button>
@@ -76,6 +77,8 @@
         <button data-tool="pen" class="active" title="Pen (P)"><svg class="icon"><use href="assets/icons.svg#pen-line"/></svg></button>
         <button data-tool="highlighter" title="Highlighter (H)"><svg class="icon"><use href="assets/icons.svg#highlighter"/></svg></button>
         <button data-tool="eraser" title="Eraser: removes whole strokes (E)"><svg class="icon"><use href="assets/icons.svg#eraser"/></svg></button>
+        <button data-tool="text" title="Text: tap the page and type (T)"><svg class="icon"><use href="assets/icons.svg#type"/></svg></button>
+        <button data-tool="line" title="Straight line: snaps to level, upright and 45° (N)"><svg class="icon"><use href="assets/icons.svg#slash"/></svg></button>
         <button data-tool="listen" title="Listen: tap your writing to hear what was being said then (L)"><svg class="icon"><use href="assets/icons.svg#headphones"/></svg></button>
       </div>
       <div class="segment" id="colors">
@@ -93,8 +96,8 @@
         <button id="undo" title="Undo (Ctrl+Z)"><svg class="icon"><use href="assets/icons.svg#undo-2"/></svg></button>
         <button id="redo" title="Redo (Ctrl+Y)"><svg class="icon"><use href="assets/icons.svg#redo-2"/></svg></button>
       </div>
-      <button id="summarise" class="btn btn-secondary" title="AI summary of this lesson (Gemini)"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg>Summary</button>
-      <button id="export" class="btn btn-secondary" title="Save this lesson as a .zip file"><svg class="icon"><use href="assets/icons.svg#download"/></svg>Export</button>
+      <button id="summarise" class="btn btn-secondary" title="AI summary of this lesson (Gemini)"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg><span class="label">Summary</span></button>
+      <button id="export" class="btn btn-secondary" title="Save this lesson as a .zip file"><svg class="icon"><use href="assets/icons.svg#download"/></svg><span class="label">Export</span></button>
       <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
     </header>
 

@@ -416,6 +416,29 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .btn-secondary { padding: 0 10px; }
 }
 
+/* --- Microphone meter and typed text ---------------------------------------------------------------------------- */
+.mic-level { width: 34px; height: 6px; margin: 0 2px; border-radius: 999px; background: var(--soft-hover); overflow: hidden; }
+.mic-level span { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--good-text); transition: width 0.1s linear; }
+.mic-level.quiet { box-shadow: 0 0 0 2px var(--danger); }
+.mic-level.quiet span { background: var(--danger); }
+.text-editor {
+  position: absolute;
+  z-index: 3;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  field-sizing: content;
+  min-width: 1.5em;
+  line-height: 1.3;
+}
+
 /* --- Marks, replay and quiz ------------------------------------------------------------------------------------- */
 .rec-live .mark { width: 30px; height: 30px; color: var(--muted); }
 #mark-important:hover:not(:disabled) { color: #d97706; }
@@ -524,3 +547,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .lesson-card.selectable:hover { border-color: var(--faint); }
 .lesson-card.selected { border-color: var(--accent); background: var(--accent-soft); }
 .select-box { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); pointer-events: none; }
+
+/* Chromebook-sized screens: Summary and Export become icons, so the lesson toolbar stays on one row */
+@media (max-width: 1480px) {
+  .toolbar .label { display: none; }
+  #summarise, #export { width: 36px; padding: 0; justify-content: center; }
+  .title-input { width: 10em; }
+}
