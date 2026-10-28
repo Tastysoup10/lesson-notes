@@ -1,9 +1,12 @@
 // Lesson Notes: handwritten notes on pages, with the lesson recorded alongside. Every pen stroke is timestamped on the
 // lesson clock, which is the recording's own time (it pauses when the recording pauses), so a stroke can be matched
 // to what was being said when it was written. Everything is stored in the browser (db.js) and works offline; Export
-// saves a lesson as a .zip (lesson.json, a PNG per page and the audio) for the AI summary at home.
+// saves a lesson as a .zip (lesson.json, a PNG per page and the audio); Summary sends it to Gemini (ai.js) for an AI
+// summary, typed-up notes and a transcript.
 import * as db from "./db.js";
 import { makeZip } from "./zip.js";
+import { summarise, testKey, AiError } from "./ai.js";
+import { markdownToHtml } from "./markdown.js";
 
 const FORMAT = "lesson-notes/1";
 // Pages are drawn in these units whatever the screen size (16:10, like most Chromebook screens)
@@ -31,6 +34,64 @@ let viewScale = 1;
 let current = null; // the stroke being drawn
 let erasing = null; // the strokes removed by the current eraser gesture
 let saveTimer = null;
+
+// --- Settings: theme (system / light / dark), paper (lined / grid / dots / blank) and the AI model, kept in this browser
+
+const SETTINGS_KEY = "lesson-notes-settings";
+const SETTING_CHOICES = {
+  theme: ["system", "light", "dark"],
+  paper: ["lined", "grid", "dots", "blank"],
+  model: ["gemini-3.8-flash", "gemini-3.5-flash-lite"] // Best, Lighter (both on Gemini's free tier)
+};
+const settings = { theme: "system", paper: "lined", model: "gemini-3.8-flash" };
+// the Gemini API key: on its own, so it never ends up anywhere the other settings go
+const AI_KEY = "lesson-notes-gemini-key";
+try {
+  const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
+  for (const key of Object.keys(SETTING_CHOICES)) {
+    if (SETTING_CHOICES[key].includes(saved[key])) settings[key] = saved[key];
+  }
+} catch {}
+
+const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+function applyTheme() {
+  const dark = settings.theme === "dark" || (settings.theme === "system" && darkQuery.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.querySelector('meta[name="theme-color"]').content = dark ? "#1b1e25" : "#ffffff";
+}
+darkQuery.addEventListener("change", applyTheme);
+applyTheme();
+
+function changeSetting(key, value) {
+  settings[key] = value;
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {}
+  applyTheme();
+  showSettingChoices();
+  redraw();
+}
+
+function showSettingChoices() {
+  for (const key of Object.keys(SETTING_CHOICES)) {
+    for (const b of $(key + "-choice").querySelectorAll("button")) b.classList.toggle("active", b.dataset.value === settings[key]);
+  }
+}
+
+function aiKey() {
+  try {
+    return localStorage.getItem(AI_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function openSettings() {
+  showSettingChoices();
+  $("ai-key").value = aiKey();
+  $("ai-key-result").hidden = true;
+  $("settings").showModal();
+}
 
 // --- The lesson clock: milliseconds of lesson time, paused when the lesson is paused ---------------------------------
 const clock = {
@@ -94,6 +155,7 @@ async function saveNow() {
 async function showHome() {
   lesson = null;
   $("lesson").hidden = true;
+  $("summary-view").hidden = true;
   $("home").hidden = false;
   const lessons = (await db.getLessons()).sort((a, b) => b.created.localeCompare(a.created));
   const list = $("lesson-list");
@@ -115,10 +177,12 @@ async function showHome() {
       metaItem(l.takes.length > 0 ? "mic" : "mic-off", l.takes.length > 0 ? "Recorded" : "No recording"),
       el("span", "chip " + (l.exported ? "good" : "warn"), l.exported ? "Exported" : "Not exported")
     );
+    if (l.ai) meta.append(el("span", "chip good", "Summarised"));
     info.append(el("div", "name", l.title), meta);
     const actions = el("div", "actions");
     actions.append(
       button("Open", "folder-open", () => openLesson(l.id), "btn btn-ghost"),
+      button("Summary", "sparkles", () => showSummary(l), "btn btn-ghost"),
       button("Export", "download", () => exportLesson(l), "btn btn-ghost"),
       button("", "trash-2", () => removeLesson(l), "btn btn-ghost btn-danger icon-only", "Delete")
     );
@@ -193,6 +257,7 @@ async function openLesson(id) {
   undoStack = [];
   redoStack = [];
   $("home").hidden = true;
+  $("summary-view").hidden = true;
   $("lesson").hidden = false;
   $("title").value = lesson.title;
   updateRecordingUi();
@@ -250,18 +315,41 @@ function drawSegment(c, stroke, a, b) {
   c.stroke();
 }
 
-// One page in page units: white paper, ruled lines, highlighters under the ink
-function renderPage(c, page) {
+// The paper's pattern (Settings → Paper), in page units
+function renderPaper(c) {
   c.fillStyle = "#fff";
   c.fillRect(0, 0, PAGE_W, PAGE_H);
-  c.strokeStyle = "#dbeafe";
+  c.strokeStyle = c.fillStyle = "#dbeafe";
   c.lineWidth = 1;
   c.beginPath();
-  for (let y = LINE_GAP * 2; y < PAGE_H; y += LINE_GAP) {
-    c.moveTo(0, y);
-    c.lineTo(PAGE_W, y);
+  if (settings.paper === "lined") {
+    for (let y = LINE_GAP * 2; y < PAGE_H; y += LINE_GAP) {
+      c.moveTo(0, y);
+      c.lineTo(PAGE_W, y);
+    }
+  } else if (settings.paper === "grid") {
+    for (let y = LINE_GAP; y < PAGE_H; y += LINE_GAP) {
+      c.moveTo(0, y);
+      c.lineTo(PAGE_W, y);
+    }
+    for (let x = LINE_GAP; x < PAGE_W; x += LINE_GAP) {
+      c.moveTo(x, 0);
+      c.lineTo(x, PAGE_H);
+    }
+  } else if (settings.paper === "dots") {
+    c.fillStyle = "#b6c8e8";
+    for (let y = LINE_GAP; y < PAGE_H; y += LINE_GAP) {
+      for (let x = LINE_GAP; x < PAGE_W; x += LINE_GAP) c.rect(x - 1.5, y - 1.5, 3, 3);
+    }
+    c.fill();
+    return;
   }
   c.stroke();
+}
+
+// One page in page units: the paper, then highlighters under the ink
+function renderPage(c, page) {
+  renderPaper(c);
   for (const s of page.strokes) {
     if (s.tool !== "highlighter") continue;
     // one path, so the overlapping parts of a highlighter stroke do not darken
@@ -542,6 +630,7 @@ function updateRecordingUi() {
   status.title = recorder == null ? "Not recording: no microphone. The lesson clock still runs." : "";
   $("rec-status-text").textContent = !running ? "PAUSED" : recorder != null ? "REC" : "NO MIC";
   $("export").disabled = active;
+  $("summarise").disabled = active;
   updateClock();
   clearInterval(clockTimer);
   if (running) clockTimer = setInterval(updateClock, 250);
@@ -570,13 +659,10 @@ async function exportLesson(target) {
     files.push({ name: file, data: new Blob(chunks, { type: take.mime }) });
     takes.push({ ...take, file });
   }
-  const pageCanvas = document.createElement("canvas");
-  pageCanvas.width = PAGE_W;
-  pageCanvas.height = PAGE_H;
-  const pc = pageCanvas.getContext("2d");
-  for (let i = 0; i < l.pages.length; i++) {
-    renderPage(pc, l.pages[i]);
-    files.push({ name: `page-${i + 1}.png`, data: await new Promise((resolve) => pageCanvas.toBlob(resolve, "image/png")) });
+  (await pageImages(l)).forEach((png, i) => files.push({ name: `page-${i + 1}.png`, data: png }));
+  if (l.ai) {
+    files.push({ name: "summary.md", data: l.ai.summary });
+    if (l.ai.transcript) files.push({ name: "transcript.txt", data: l.ai.transcript });
   }
   const json = {
     format: FORMAT,
@@ -590,6 +676,7 @@ async function exportLesson(target) {
     // are on the same clock, so a point at time t was drawn (t - clockStart) ms into that file
     recordings: takes,
     page: l.page,
+    paper: settings.paper,
     pages: l.pages.map((p, i) => ({ image: `page-${i + 1}.png`, strokes: p.strokes }))
   };
   files.unshift({ name: "lesson.json", data: JSON.stringify(json) });
@@ -606,6 +693,120 @@ async function exportLesson(target) {
   if (lesson?.id === l.id) lesson.exported = l.exported;
   toast(`Exported ${a.download} (${formatBytes(zip.size)}) to your Downloads.`);
   if (!$("home").hidden) showHome();
+}
+
+// Each page as a full-size PNG
+async function pageImages(l) {
+  const pageCanvas = document.createElement("canvas");
+  pageCanvas.width = PAGE_W;
+  pageCanvas.height = PAGE_H;
+  const pc = pageCanvas.getContext("2d");
+  const images = [];
+  for (const page of l.pages) {
+    renderPage(pc, page);
+    images.push(await new Promise((resolve) => pageCanvas.toBlob(resolve, "image/png")));
+  }
+  return images;
+}
+
+// --- AI summary ------------------------------------------------------------------------------------------------------
+
+let summaryLesson = null; // the lesson on the summary screen
+let summaryFrom = "home"; // the screen Back returns to
+let summarising = false;
+
+async function showSummary(target) {
+  if (target === lesson && lessonActive()) {
+    toast("End the lesson first, so the recording is complete.");
+    return;
+  }
+  if (target === lesson) await saveNow();
+  summaryFrom = $("lesson").hidden ? "home" : "lesson";
+  summaryLesson = lesson?.id === target.id ? lesson : await db.getLesson(target.id);
+  $("home").hidden = $("lesson").hidden = true;
+  $("summary-view").hidden = false;
+  $("summary-title").textContent = summaryLesson.title;
+  renderSummary();
+}
+
+function leaveSummary() {
+  if (summaryFrom === "lesson" && lesson != null) {
+    $("summary-view").hidden = true;
+    $("lesson").hidden = false;
+    fit();
+  } else {
+    showHome();
+  }
+}
+
+function renderSummary(error = null) {
+  const ai = summaryLesson.ai;
+  $("summary-status").hidden = !summarising;
+  $("summary-error").hidden = summarising || error == null;
+  $("summary-error-text").textContent = error ?? "";
+  $("summary-start").hidden = summarising || error != null || ai != null;
+  $("summary-body").hidden = $("summary-transcript").hidden = summarising || ai == null;
+  $("summary-copy").disabled = $("summary-again").disabled = summarising || ai == null;
+  $("summary-meta").textContent = "";
+  if (ai == null) {
+    $("summary-start-text").textContent = aiKey()
+      ? "Gemini listens to the recording and reads your pages, then writes a summary, your notes typed up and a transcript."
+      : "Gemini can summarise your lessons for free. First paste your Gemini API key in Settings.";
+    $("summary-go").lastChild.textContent = aiKey() ? "Summarise" : "Open Settings";
+    return;
+  }
+  $("summary-body").innerHTML = markdownToHtml(ai.summary);
+  $("summary-transcript").hidden ||= !ai.transcript;
+  const lines = $("summary-transcript-text");
+  lines.replaceChildren();
+  for (const line of ai.transcript.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const m = line.match(/^\s*\[([\d:]+)\]\s*(.*)$/);
+    const p = el("p");
+    if (m) p.append(el("time", "", m[1]), m[2]);
+    else p.textContent = line;
+    lines.append(p);
+  }
+  $("summary-meta").textContent = `Made by ${ai.model} on ${new Date(ai.made).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.` +
+    (ai.truncated ? " Gemini's reply was cut short, so the end may be missing; Redo may give a complete one." : "");
+}
+
+async function runSummary() {
+  const key = aiKey();
+  if (!key) {
+    openSettings();
+    return;
+  }
+  if (summarising) return;
+  const l = summaryLesson;
+  if (l.ai && !confirm("Make a new summary? It replaces this one and uses one of your free Gemini requests.")) return;
+  summarising = true;
+  const status = (text, fraction) => {
+    $("summary-status-text").textContent = text;
+    $("summary-progress").hidden = fraction == null;
+    $("summary-progress").firstElementChild.style.width = (fraction ?? 0) * 100 + "%";
+  };
+  status("Getting the lesson ready…", null);
+  renderSummary();
+  let error = null;
+  try {
+    const recordings = [];
+    for (const take of l.takes) {
+      const chunks = await db.getAudioChunks(l.id, take.take);
+      if (chunks.length > 0) recordings.push({ take: take.take, clockStart: take.clockStart, blob: new Blob(chunks, { type: take.mime }) });
+    }
+    if (recordings.length == 0 && !l.pages.some((p) => p.strokes.length > 0)) throw new AiError("There's nothing to summarise yet: no recording and no notes.");
+    const result = await summarise({ key, model: settings.model, lesson: l, recordings, pages: await pageImages(l), formatTime, onStatus: status });
+    // the lesson may have been opened again meanwhile: store it on the copy that is being edited, if there is one
+    const target = lesson?.id === l.id ? lesson : l;
+    target.ai = l.ai = { ...result, made: new Date().toISOString() };
+    await db.putLesson(target);
+  } catch (e) {
+    error = e instanceof AiError ? e.message : "Something went wrong: " + e.message;
+  }
+  summarising = false;
+  if (summaryLesson === l && !$("summary-view").hidden) renderSummary(error);
+  else toast(error ?? `The summary of "${l.title}" is ready.`);
 }
 
 // --- Helpers ---------------------------------------------------------------------------------------------------------
@@ -643,6 +844,57 @@ $("new-lesson").addEventListener("click", async () => {
   openLesson(l.id);
 });
 $("back").addEventListener("click", leaveLesson);
+for (const b of document.querySelectorAll(".open-settings")) b.addEventListener("click", openSettings);
+$("settings").addEventListener("close", () => !$("summary-view").hidden && !summarising && renderSummary());
+$("ai-key").addEventListener("input", (e) => {
+  try {
+    localStorage.setItem(AI_KEY, e.target.value.trim());
+  } catch {}
+  $("ai-key-result").hidden = true;
+});
+$("ai-key-test").addEventListener("click", async () => {
+  const result = $("ai-key-result");
+  const key = aiKey();
+  result.hidden = false;
+  result.className = "hint";
+  if (!key) {
+    result.textContent = "Paste your key first.";
+    return;
+  }
+  result.textContent = "Testing…";
+  try {
+    await testKey(key);
+    result.className = "hint good";
+    result.textContent = "It works: Gemini can be reached from here.";
+  } catch (e) {
+    result.className = "hint bad";
+    result.textContent = e.message;
+  }
+});
+$("summarise").addEventListener("click", () => showSummary(lesson));
+$("summary-back").addEventListener("click", leaveSummary);
+$("summary-go").addEventListener("click", runSummary);
+$("summary-again").addEventListener("click", runSummary);
+$("summary-retry").addEventListener("click", runSummary);
+$("summary-copy").addEventListener("click", async () => {
+  const ai = summaryLesson.ai;
+  const text = `# ${summaryLesson.title}\n\n${ai.summary}` + (ai.transcript ? `\n\n## Transcript\n\n${ai.transcript}` : "");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Copied. Paste it into a document with Ctrl+V.");
+  } catch {
+    toast("Couldn't copy. Use Export to save the summary instead.");
+  }
+});
+$("settings-close").addEventListener("click", () => $("settings").close());
+// a click on the dimmed background closes it too
+$("settings").addEventListener("click", (e) => e.target === $("settings") && $("settings").close());
+for (const key of Object.keys(SETTING_CHOICES)) {
+  $(key + "-choice").addEventListener("click", (e) => {
+    const value = e.target.closest("button")?.dataset.value;
+    if (value) changeSetting(key, value);
+  });
+}
 $("title").addEventListener("input", (e) => {
   lesson.title = e.target.value.trim() || "Untitled lesson";
   scheduleSave();
@@ -676,7 +928,7 @@ $("sizes").addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (lesson == null || e.target.tagName === "INPUT") return;
+  if (lesson == null || $("lesson").hidden || e.target.tagName === "INPUT" || $("settings").open) return;
   const key = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && key === "z") {
     e.preventDefault();
@@ -706,7 +958,19 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // sw.js is always checked on the server (never from the browser's cache), so a new version is found straight away
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+  // When a new version has downloaded completely and taken over, reload once so the whole page is the new version.
+  // Not in the middle of a lesson: then it waits until the app is next opened.
+  const updating = navigator.serviceWorker.controller != null;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!updating) return;
+    if (lesson != null && lessonActive()) {
+      toast("An update has downloaded. It will show next time you open the app.");
+    } else {
+      location.reload();
+    }
+  });
 }
 
 showHome();

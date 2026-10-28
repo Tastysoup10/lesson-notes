@@ -10,6 +10,14 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preload" href="assets/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
+  <script>
+    // the theme before anything is drawn, so dark mode does not flash white (app.js keeps it up to date)
+    try {
+      const theme = JSON.parse(localStorage.getItem("lesson-notes-settings") || "{}").theme || "system";
+      const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    } catch {}
+  </script>
 </head>
 <body>
   <!-- All lessons -->
@@ -19,7 +27,10 @@
         <span class="brand-mark"><svg class="icon"><use href="assets/icons.svg#notebook-pen"/></svg></span>
         <h1>Lesson Notes</h1>
       </div>
-      <button id="new-lesson" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#plus"/></svg>New lesson</button>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
+        <button id="new-lesson" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#plus"/></svg>New lesson</button>
+      </div>
     </header>
     <main class="home-main">
       <ul id="lesson-list"></ul>
@@ -70,7 +81,9 @@
         <button id="undo" title="Undo (Ctrl+Z)"><svg class="icon"><use href="assets/icons.svg#undo-2"/></svg></button>
         <button id="redo" title="Redo (Ctrl+Y)"><svg class="icon"><use href="assets/icons.svg#redo-2"/></svg></button>
       </div>
-      <button id="export" class="btn btn-secondary" title="Save this lesson as a .zip file for the AI summary"><svg class="icon"><use href="assets/icons.svg#download"/></svg>Export</button>
+      <button id="summarise" class="btn btn-secondary" title="AI summary of this lesson (Gemini)"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg>Summary</button>
+      <button id="export" class="btn btn-secondary" title="Save this lesson as a .zip file"><svg class="icon"><use href="assets/icons.svg#download"/></svg>Export</button>
+      <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
     </header>
 
     <main id="stage">
@@ -84,6 +97,81 @@
       </nav>
     </main>
   </section>
+
+  <!-- One lesson's AI summary -->
+  <section id="summary-view" class="screen" hidden>
+    <header class="toolbar">
+      <button id="summary-back" class="btn btn-ghost icon-only" title="Back"><svg class="icon"><use href="assets/icons.svg#arrow-left"/></svg></button>
+      <h1 id="summary-title" class="summary-title"></h1>
+      <div class="spacer"></div>
+      <button id="summary-copy" class="btn btn-secondary" title="Copy the summary and transcript, to paste into a document"><svg class="icon"><use href="assets/icons.svg#copy"/></svg>Copy</button>
+      <button id="summary-again" class="btn btn-secondary" title="Make the summary again"><svg class="icon"><use href="assets/icons.svg#refresh-cw"/></svg>Redo</button>
+      <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
+    </header>
+    <main class="summary-main">
+      <div id="summary-status" class="summary-status" hidden>
+        <div class="spinner"></div>
+        <p id="summary-status-text"></p>
+        <div id="summary-progress" class="progress"><div></div></div>
+        <p class="hint">Keep this page open. A long lesson can take a few minutes.</p>
+      </div>
+      <div id="summary-error" class="summary-error" hidden>
+        <p id="summary-error-text"></p>
+        <button id="summary-retry" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#refresh-cw"/></svg>Try again</button>
+      </div>
+      <div id="summary-start" class="empty" hidden>
+        <svg class="icon empty-icon"><use href="assets/icons.svg#sparkles"/></svg>
+        <h2>AI summary</h2>
+        <p id="summary-start-text"></p>
+        <button id="summary-go" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg>Summarise</button>
+      </div>
+      <article id="summary-body" class="summary-body" hidden></article>
+      <details id="summary-transcript" class="summary-transcript" hidden>
+        <summary>Transcript</summary>
+        <div id="summary-transcript-text"></div>
+      </details>
+      <p id="summary-meta" class="storage-note"></p>
+    </main>
+  </section>
+
+  <dialog id="settings" class="dialog" aria-labelledby="settings-title">
+    <header>
+      <h2 id="settings-title">Settings</h2>
+      <button id="settings-close" class="btn btn-ghost icon-only" title="Close"><svg class="icon"><use href="assets/icons.svg#x"/></svg></button>
+    </header>
+    <section>
+      <h3>Theme</h3>
+      <div class="choice" id="theme-choice">
+        <button data-value="system"><svg class="icon"><use href="assets/icons.svg#monitor"/></svg>System</button>
+        <button data-value="light"><svg class="icon"><use href="assets/icons.svg#sun"/></svg>Light</button>
+        <button data-value="dark"><svg class="icon"><use href="assets/icons.svg#moon"/></svg>Dark</button>
+      </div>
+      <p class="hint">System follows your Chromebook's light or dark setting.</p>
+    </section>
+    <section>
+      <h3>Paper</h3>
+      <div class="choice" id="paper-choice">
+        <button data-value="lined"><svg class="icon"><use href="assets/icons.svg#align-justify"/></svg>Lined</button>
+        <button data-value="grid"><svg class="icon"><use href="assets/icons.svg#grid-3x3"/></svg>Grid</button>
+        <button data-value="dots"><svg class="icon"><use href="assets/icons.svg#grip"/></svg>Dots</button>
+        <button data-value="blank"><svg class="icon"><use href="assets/icons.svg#square-dashed"/></svg>Blank</button>
+      </div>
+      <p class="hint">The paper stays white in dark mode, so ink colours look right and exported pages are easy for the AI to read.</p>
+    </section>
+    <section>
+      <h3>AI summaries (Gemini)</h3>
+      <div class="key-row">
+        <input id="ai-key" type="password" class="text-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" aria-label="Gemini API key">
+        <button id="ai-key-test" class="btn btn-secondary">Test</button>
+      </div>
+      <p id="ai-key-result" class="hint" hidden></p>
+      <div class="choice" id="model-choice">
+        <button data-value="gemini-3.8-flash"><svg class="icon"><use href="assets/icons.svg#sparkles"/></svg>Best</button>
+        <button data-value="gemini-3.5-flash-lite"><svg class="icon"><use href="assets/icons.svg#notebook-pen"/></svg>Lighter</button>
+      </div>
+      <p class="hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> with a personal Google account. It is kept in this browser only. Lighter is quicker and the free limit lasts longer. On the free plan Google may use what you send to improve its AI.</p>
+    </section>
+  </dialog>
 
   <div id="toast" role="status" hidden></div>
   <script type="module" src="app.js"></script>
