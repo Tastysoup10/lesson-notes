@@ -167,10 +167,16 @@ async function call(host, path, { arg, body } = {}) {
     signOut();
     throw new BackupError("Sign in to Dropbox again to back up.", "signed-out");
   }
+  // the whole reply, for working out anything not handled below (Chrome: right-click → Inspect → Console)
+  console.warn("Dropbox", path, response.status, text);
   if (response.status === 409 && /not_found/.test(summary)) throw new BackupError("Not found in Dropbox.", "missing");
   if (response.status === 507 || /insufficient_space/.test(summary)) throw new BackupError("Your Dropbox is full.");
   if (response.status === 429) throw new BackupError("Dropbox says to slow down. It will try again later.", "offline");
-  throw new BackupError("Dropbox: " + (summary || "error " + response.status));
+  // Dropbox refuses uploads until the account's email address is verified, and sometimes says only "other/.." then
+  if (/email_not_verified|^other\//.test(summary)) {
+    throw new BackupError(`Dropbox refused (${summary}). This usually means your Dropbox email address isn't verified yet: open the email Dropbox sent you (or dropbox.com → your picture → Settings) and verify it, then press Back up now.`);
+  }
+  throw new BackupError(`Dropbox (${path.replace("/files/", "")}): ${summary || "error " + response.status}`);
 }
 
 async function list(path) {
@@ -228,7 +234,13 @@ export async function backUpLesson(state, folderName, files, onFile) {
   for (let i = 0; i < changed.length; i++) {
     const f = changed[i];
     onFile?.(i, changed.length);
-    await call(CONTENT, "/files/upload", { arg: { path: `/${folderName}/${f.name}`, mode: "overwrite", mute: true }, body: await f.blob() });
+    try {
+      await call(CONTENT, "/files/upload", { arg: { path: `/${folderName}/${f.name}`, mode: "overwrite", mute: true }, body: await f.blob() });
+    } catch (e) {
+      if (e.code) throw e;
+      // which file, so a problem with one name or size can be found
+      throw new BackupError(`${e.message} (uploading "${folderName}/${f.name}")`);
+    }
     result.files[f.name] = f.sig;
   }
   return result;
