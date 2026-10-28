@@ -27,6 +27,37 @@ The key is kept in this browser only, never in exports or this repository. Free-
 run out, try later or choose **Lighter** in Settings. On the free tier Google may use what is sent to improve its
 products, so only summarise lessons you are allowed to share. If the school network blocks Gemini, summarise at home.
 
+## Google Drive backup
+
+Lessons are always saved on the Chromebook first (so class works without internet), and the app copies each one to
+a **Lesson Notes** folder in your Google Drive: one folder per lesson with `lesson.json`, a PNG per page, the
+recording, and the summary if there is one. Only lessons that changed are uploaded again. A lesson that is going on
+is backed up once it ends. Deleting a lesson in the app keeps its copy in Drive.
+
+The button next to the gear shows the state: **Backed up**, or **Back up (2)** when lessons are waiting. Press it to
+sign in and back up; Google's sign-in is valid for about an hour, and the app backs up by itself while it is.
+**Settings → Restore** brings back any lessons that are in Drive but not on this Chromebook (a new or cleared one).
+
+The app can only see the files it made, not the rest of your Drive.
+
+### Setting it up (once, about 10 minutes, free)
+
+Google needs every app that uses Drive to have its own **client ID**. Make it with a **personal** Google account
+(school accounts usually block this):
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project called `Lesson Notes`.
+2. **APIs & Services → Library**, search for **Google Drive API**, and press **Enable**.
+3. **Google Auth Platform** (or **APIs & Services → OAuth consent screen**) → **Get started**. App name
+   `Lesson Notes`, your email as support email, Audience **External**, your email as contact, agree, **Create**.
+4. **Audience → Test users → Add users**: add your own Gmail address. Leave the app in **Testing**.
+5. **Clients → Create client**: Application type **Web application**. Under **Authorized JavaScript origins** add
+   `https://tastysoup10.github.io`. Press **Create** and copy the **Client ID** (it ends in
+   `.apps.googleusercontent.com`).
+6. In the app: **Settings → Google Drive backup**, paste the client ID, press **Back up now**. Google will say
+   it "hasn't verified this app": that is expected for your own app, so press **Continue** and allow access.
+
+If Chrome blocks the sign-in window, allow pop-ups for the site (the icon at the right of the address bar).
+
 **Settings** (the gear button): Theme (System, which follows the Chromebook, Light or Dark) and Paper (Lined, Grid,
 Dots or Blank). The paper stays white in dark mode. Settings are kept in this browser.
 
@@ -68,7 +99,7 @@ lesson was started.
 
 ## Files
 
-`index.html`, `style.css`, `app.js` (drawing, clock, recording, export, summary screen), `ai.js` (Gemini),
+`index.html`, `style.css`, `app.js` (drawing, clock, recording, export, summary screen), `ai.js` (Gemini), `drive.js` (Google Drive backup),
 `markdown.js` (shows the summary), `db.js` (browser storage), `zip.js` (zip writer), `sw.js` (offline copy), `manifest.webmanifest` and `icon.svg` (installable app). No build step, no
 libraries.
 

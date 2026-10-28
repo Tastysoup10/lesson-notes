@@ -47,3 +47,6 @@ export const putAudioChunk = (lessonId, take, chunk, blob) =>
 // The chunks of one take, in order
 export const getAudioChunks = async (lessonId, take) =>
   (await run("audio", "readonly", (s) => s.getAll(audioRange(`${lessonId}:${pad(take)}:`)))).map((r) => r.blob);
+
+// How many chunks one take has (without loading them)
+export const countAudioChunks = (lessonId, take) => run("audio", "readonly", (s) => s.count(audioRange(`${lessonId}:${pad(take)}:`)));

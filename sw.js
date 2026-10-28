@@ -4,9 +4,9 @@
 // so change VERSION whenever you change any of the app's files) downloads the whole set fresh from the server,
 // skipping the browser's HTTP cache (GitHub Pages lets browsers keep files for 10 minutes), and only then takes over.
 // The page is always served from one set, so a new index.html never meets an old style.css.
-const VERSION = 5;
+const VERSION = 6;
 const CACHE = "lesson-notes-v" + VERSION;
-const FILES = ["./", "index.html", "style.css", "app.js", "db.js", "zip.js", "ai.js", "markdown.js", "manifest.webmanifest", "icon.svg", "assets/icons.svg", "assets/inter.woff2"];
+const FILES = ["./", "index.html", "style.css", "app.js", "db.js", "zip.js", "ai.js", "markdown.js", "drive.js", "manifest.webmanifest", "icon.svg", "assets/icons.svg", "assets/inter.woff2"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

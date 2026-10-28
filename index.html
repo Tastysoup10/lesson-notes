@@ -28,6 +28,7 @@
         <h1>Lesson Notes</h1>
       </div>
       <div class="topbar-actions">
+        <button id="drive-status" class="btn btn-ghost" hidden><svg class="icon"><use id="drive-status-icon" href="assets/icons.svg#cloud"/></svg><span id="drive-status-text"></span></button>
         <button class="btn btn-ghost icon-only open-settings" title="Settings"><svg class="icon"><use href="assets/icons.svg#settings"/></svg></button>
         <button id="new-lesson" class="btn btn-primary"><svg class="icon"><use href="assets/icons.svg#plus"/></svg>New lesson</button>
       </div>
@@ -170,6 +171,17 @@
         <button data-value="gemini-3.5-flash-lite"><svg class="icon"><use href="assets/icons.svg#notebook-pen"/></svg>Lighter</button>
       </div>
       <p class="hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> with a personal Google account. It is kept in this browser only. Lighter is quicker and the free limit lasts longer. On the free plan Google may use what you send to improve its AI.</p>
+    </section>
+    <section>
+      <h3>Google Drive backup</h3>
+      <input id="drive-client" class="text-input wide" placeholder="Paste your Google client ID" autocomplete="off" spellcheck="false" aria-label="Google client ID">
+      <div class="button-row">
+        <button id="drive-backup" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-upload"/></svg>Back up now</button>
+        <button id="drive-restore" class="btn btn-secondary"><svg class="icon"><use href="assets/icons.svg#cloud-download"/></svg>Restore</button>
+        <button id="drive-signout" class="btn btn-ghost">Sign out</button>
+      </div>
+      <p id="drive-result" class="hint" hidden></p>
+      <p class="hint">Copies every lesson to a "Lesson Notes" folder in your Google Drive whenever you're online. Lessons are still saved on this Chromebook first, so nothing is lost without internet. The app can only see files it made. To set it up once, follow <a href="https://github.com/Tastysoup10/lesson-notes#google-drive-backup" target="_blank" rel="noopener">the steps in the README</a>.</p>
     </section>
   </dialog>
 
